@@ -23,7 +23,8 @@
 - 图纸检索：`--search` / `--filter`，输出文件、图框、图层、坐标。
 - DWG→DXF：内置 `ezdwg 0.12.6`，不需要 LibreDWG / ODA。
 - SVG 预览：`read_cad.sh --render`。
-- 内存看门狗：大图超限自动终止，防止解析器把机器拖到卡死。
+- 内存看门狗：大图超限自动终止，防止解析器把机器拖到卡死；结果被闸掉时 `cad_scan` 以退出码 4 结束（0.2.3），残缺不会被当成完整量。
+- 入口闸只在全量路径：`read_cad.sh` >20MB、`convert_dwg.sh` >200MB 默认拒绝，需 `--allow-big`；`cad_scan.sh` 快速路径不设体积闸。
 
 ## 安装（GitHub 完整包）
 
