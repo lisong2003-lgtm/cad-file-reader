@@ -1,32 +1,30 @@
-# CAD File Reader
+# CAD 图纸识图与证据提取（cad-file-reader）
 
-一个给 AI 编码助手使用的本地 CAD 读取与工程量辅助 Skill。直接解析 DWG/DXF/DWT，
-不需要安装 AutoCAD。适合大图快速扫描、构件统计、结构算量流水线、规范/图集引用定位，
-以及需要证据和复核边界的混凝土量台账。
+一个给 AI 编码助手使用的本地 CAD **识图与证据提取** Skill。直接解析 DWG/DXF/DWT，不需要安装 AutoCAD。适合大图快速扫描、图层/文字/块/图框索引、建筑/结构/MEP/钢结构/市政识图候选、规范图集引用定位和回图复核。
 
-> 定位：自动读图与计划口径辅助工具；不替代设计审查、清单计价、翻样下料、结算或规范条文解释。
+> 定位：识图与证据工具，不替代设计审查、清单计价、翻样下料、结算或规范条文解释。
 > 身份透明：这是 AI 助手调用的工具型 Skill，不伪装成任何人物或外部产品。
 
-## 0.5.0 优化概览
+## 0.18.0 新增概览
 
-- **规范/图集辅助**：`cad_normative.sh` 识别图纸引用的规范/图集编号，匹配 54 条元数据，
-  其中 46 条给出知识库相对入口。输出现行/旧版/待确认/未索引状态，并提示缺少设计输入。
-- **口径冲突提示**：不同图框或说明给出同一参数不同值时，标为冲突并要求绑定部位复核。
-- **编号别名匹配**：支持 `GB/T50001-2017` 与 `GBT50001-2017`、基础编号与年版编号。
-- **Token 架构优化**：主入口保持短路由；算量长流程外移到专用包，按需读取。
-  主入口约 7.5 KB，旧算量说明约 105 KB 精简到约 2 KB。
-- **证据与边界不变**：自动提取保留原文证据；规范辅助只定位资料入口和版本风险，不输出合规结论。
+- **测量候选层**：新增 `cad_measure.sh`，可输出长度、面积、体积的识图候选值、计算式、比例单位依据和证据；每条固定 `final_quantity=false`。
+- **职责收口**：`cad-file-reader` 只保留识图、几何候选、测量候选、证据和复核边界，不输出最终工程量、材料量、造价或结算量。
+- **算量迁移**：原梁板柱墙、楼梯、洞口、预制底板、混凝土分账和结构算量流水线迁到 `tujian-suanliang`（本机目录 `shangwu-suanliang`）。
+- **入口清理**：删除 `cad_quantity_pipeline.sh`、`--axis-grid`、`--thk-mm`、`--col-height-mm`、混凝土 CSV/Markdown 和楼层梁混凝土初算输出。
+- **底座保留**：`cad_scan`/`cad_interpret` 仍保留文字、图层、图框、几何线段、构件标注、净跨/支座候选和原文证据，供各专项算量 skill 调用。
+- **边界**：本技能不计算最终量；测量候选不能直接当清单量或结算量，算量 skill 负责口径、扣减、损耗、分账和台账。
 
 ## 能力
 
-- DWG / DXF / DWT 直接读取；支持单文件、目录和递归扫描。
-- 低内存快速路径：文字、图层、块名、关键词、构件编号、图框。
-- 说明解释与规范引用初解：`cad_interpret.sh`。
-- 规范/图集元数据辅助：`cad_normative.sh`。
-- 结构几何与混凝土算量流水线：`cad_quantity_pipeline.sh`，输出候选量、风险量、正式入账口径分层。
-- 按楼层/图框取数，支持全量文字/图层/坐标台账。
-- DWG→DXF 转换；小图可用全量实体树和 SVG 预览。
-- Markdown / JSON / CSV 输出；重要流水线带 SHA-256。
+- DWG/DXF/DWT 直接读取；支持单文件、目录和递归扫描。
+- 低内存快速路径：文字、图层、块名、关键词、构件编号、图框和几何候选。
+- 说明解释与规范引用初解：`cad_interpret.sh`；规范/图集元数据辅助：`cad_normative.sh`。
+- 装饰识图中间数据：`cad_descriptive_geometry.sh`，输出房间边界、墙段分段、顶棚分区、楼梯/坡道/台阶初稿、外墙分格/保温分区、门窗、做法、节点索引和证据坐标。
+- 测量候选：`cad_measure.sh`，把上述识图 JSON 转成可追溯的长度/面积/体积候选，保留图面值、比例、单位、计算式和复核原因。
+- 安装识图中间数据：`cad_mep_geometry.sh`，输出安装图纸类型、专业系统、路由段、设备、标注、立管、竖向路由、系统拓扑候选和证据坐标。
+- 钢结构识图中间数据：`cad_steel_geometry.sh`，输出钢结构图纸类型、结构系统、构件、截面、连接、材料、涂装、节点、轴网/标高、几何和连通性候选。
+- 市政专业识图中间数据：`cad_municipal_geometry.sh`，输出市政图纸类型、专业系统、道路/桥隧/管网构件、材料、桩号、标高、坐标、几何和连通性候选。
+- 输出 Markdown / JSON / CSV；重要识图流水线可生成 manifest 和 SHA-256。
 
 ## 安装
 
@@ -69,20 +67,28 @@ scripts/cad_interpret.sh --scan 图纸扫描.json --detail 图纸详情.json \
 scripts/cad_normative.sh --scan 图纸扫描.json --detail 图纸详情.json \
   --rules rules --format all -o 规范辅助
 
-# 结构算量流水线
-scripts/cad_quantity_pipeline.sh 结构图.dwg \
-  --floor-label "二层梁平法施工图" \
-  --support-floor-label "标高X~Y墙柱平法施工图" \
-  --slab-floor-label "二层板结构施工图" \
-  --out 首层算量
+# 测量候选（长度/面积/体积）
+scripts/cad_measure.sh 描述几何/图纸详情.descriptive.json --out-dir 测量候选
+# 缺比例/单位时保留图面值并转 review；只有 paper/layout 空间才应用图框比例
+scripts/cad_measure.sh 安装识图/安装详情.mep.json --scale 1:100 --unit mm --coordinate-space model --out-dir 测量候选
+
+# 安装识图中间数据
+scripts/cad_scan.sh 安装图.dwg --with-mtext --with-insert \
+  --with-geom --with-geom-layer --detail-json 安装详情.json --format json -o 安装扫描
+scripts/cad_mep_geometry.sh 安装详情.json --out-dir 安装识图
+
+# 结构算量入口已迁到土建算量 skill
+cd "$CODEX_HOME/skills/shangwu-suanliang"
+scripts/run_qty.sh advanced 结构图.dwg --floor-label "二层梁平法施工图" --out 首层算量
 ```
 
 ## 边界
 
 - 不做设计合规审查、施工方案判断、清单计价、结算审计或规范条文解释。
+- 测量候选固定 `final_quantity=false`；不输出最终工程量、材料量、造价或结算量。
 - 规范/图集辅助只提供元数据、版本风险和资料入口；适用性以图纸指定版本和授权全文为准。
-- 数量分为候选量、复核量和正式入账口径；缺输入记为缺口，不自动编造。
 - 大图优先低内存扫描；高内存/高 CPU 时应暂停，不应盲目全量解析。
+- 公司项目路径、内部结果和规范全文不得进入技能发布内容。
 
 ## 许可
 
