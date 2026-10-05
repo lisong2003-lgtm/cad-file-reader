@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 为 SkillHub 轻量包补齐 vendor 依赖：优先本包版本的 GitHub Release，
-# 拿不到就退回任一可用 Release，最后兜底 pip。
+# 兼容 full 两种命名，拿不到就退回任一可用 Release，最后兜底 pip。
 set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO="${CAD_FILE_READER_REPO:-lisong2003-lgtm/cad-file-reader}"
@@ -10,11 +10,21 @@ WANT="${CAD_FILE_READER_VERSION:-${PKG_VER:-0.18.0}}"
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 
 fetch() {
-  local url="https://github.com/${REPO}/releases/download/v$1/cad-file-reader-full-$1.zip"
-  echo "尝试 $url" >&2
-  curl -sL --http1.1 --fail "$url" -o "$TMP/full.zip" || return 1
-  unzip -oq "$TMP/full.zip" "*/vendor/*" -d "$TMP" || return 1
-  [ -d "$TMP/cad-file-reader/vendor" ] || [ -n "$(find "$TMP" -type d -name vendor -print -quit)" ] || return 1
+  local v="$1"
+  local url
+  for url in \
+    "https://github.com/${REPO}/releases/download/v${v}/cad-file-reader-full-${v}.zip" \
+    "https://github.com/${REPO}/releases/download/v${v}/cad-file-reader-${v}-full.zip"; do
+    echo "尝试 $url" >&2
+    if curl -sL --http1.1 --fail "$url" -o "$TMP/full.zip"; then
+      if unzip -oq "$TMP/full.zip" "*/vendor/*" -d "$TMP" 2>/dev/null \
+         && { [ -d "$TMP/cad-file-reader/vendor" ] || [ -n "$(find "$TMP" -type d -name vendor -print -quit)" ]; }; then
+        return 0
+      fi
+      echo "解压后未找到 vendor，继续尝试下一个命名…" >&2
+    fi
+  done
+  return 1
 }
 
 if fetch "$WANT"; then

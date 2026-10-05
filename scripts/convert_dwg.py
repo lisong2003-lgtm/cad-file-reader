@@ -9,7 +9,6 @@ import resource
 import sys
 from pathlib import Path
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 VENDOR_DIR = SCRIPT_DIR.parent / "vendor"
 if VENDOR_DIR.is_dir():
@@ -17,12 +16,7 @@ if VENDOR_DIR.is_dir():
 
 SUPPORTED_SUFFIXES = {".dwg", ".dwt"}
 
-
-def peak_rss_mb() -> int:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(rss / 1048576) if sys.platform == "darwin" else int(rss / 1024)
-
-
+from cad_common import peak_rss_mb
 def start_watchdog(cap_mb: int) -> str:
     try:
         sys.path.insert(0, str(SCRIPT_DIR))
@@ -32,7 +26,6 @@ def start_watchdog(cap_mb: int) -> str:
         return f"watchdog:{cap_mb}MB"
     except Exception as exc:
         return f"watchdog-failed:{exc}"
-
 
 def collect_files(paths: list[str], recursive: bool) -> list[Path]:
     files: list[Path] = []
@@ -47,7 +40,6 @@ def collect_files(paths: list[str], recursive: bool) -> list[Path]:
             files.append(path)
     return sorted(dict.fromkeys(files))
 
-
 def resolve_output(src: Path, out_arg: str | None, multiple: bool) -> Path:
     if out_arg is None:
         return Path.cwd() / (src.stem + ".dxf")
@@ -55,7 +47,6 @@ def resolve_output(src: Path, out_arg: str | None, multiple: bool) -> Path:
     if not multiple and out.suffix.lower() == ".dxf":
         return out
     return out / (src.stem + ".dxf")
-
 
 def convert_one(src: Path, out: Path, args: argparse.Namespace) -> dict:
     if out.exists() and not args.overwrite:
@@ -92,7 +83,6 @@ def convert_one(src: Path, out: Path, args: argparse.Namespace) -> dict:
         "skipped_entities": result.skipped_entities,
         "skipped_by_type": result.skipped_by_type,
     }
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -202,7 +192,6 @@ def main() -> int:
                 if item.get("skipped_by_type"):
                     print(f"skipped_by_type: {item['skipped_by_type']}")
     return 0 if all(item.get("ok", False) for item in results) else 2
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

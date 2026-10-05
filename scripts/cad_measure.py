@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 SCHEMA = "cad-measurement-candidates/v1"
+from cad_contract import contractize_payload
 TARGET_UNITS = {"length": "m", "area": "m2", "volume": "m3"}
 UNIT_ALIASES = {
     "mm": "mm", "毫米": "mm", "cm": "cm", "厘米": "cm", "m": "m", "米": "m",
@@ -652,6 +653,7 @@ def main() -> int:
             print(f"❌输入不存在：{path}", file=sys.stderr)
             return 2
     payload = analyze(inputs, args)
+    payload = contractize_payload(payload, source=[Path(v).name for v in payload.get("source_files", [])])
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     json_path = out_dir / "cad-measurement-candidates.json"

@@ -47,6 +47,7 @@ scripts/cad_measure.sh 描述几何/图纸详情.descriptive.json \
   - `source_schema`、`source_id`
   - `final_quantity=false`
 - `review[]`：所有待复核测量
+- `contract`：`cad-file-reader/v0` 统一契约；`confirmed_evidence` / `inferred_candidate` 进入 `candidates[]`，`review_required` 进入 `review_candidates[]`
 - `boundary`：固定说明本层不做最终工程量
 
 ## 计算边界

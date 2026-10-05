@@ -14,12 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-
 # ---- 内存闸（2026-08-31 加，整档 ezdwg/ezdxf 解析会吃 GB 级内存，曾导致系统卡死被长按电源键）----
 DEFAULT_CAP_MB = 4096       # 单进程硬上限（RLIMIT_AS）：超了就 MemoryError，不拖垮整机
 DEFAULT_MAX_FILE_MB = 20    # 入口大小闸：超过即拒绝整档解析，改走 scripts/cad_scan.sh 低内存路径（本机图纸 20~75MB 常见）
 
-
+from cad_common import peak_rss_mb
 def apply_mem_cap(cap_mb: int) -> str:
     """macOS 没有可用的 RLIMIT_AS，改用进程内看门狗（见 mem_guard.py）。"""
     try:
@@ -30,16 +29,9 @@ def apply_mem_cap(cap_mb: int) -> str:
     except Exception as exc:
         return "watchdog-failed:%s" % exc
 
-
-def peak_rss_mb() -> int:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(rss / 1048576) if sys.platform == "darwin" else int(rss / 1024)
-
-
 VENDOR_DIR = Path(__file__).resolve().parent.parent / "vendor"
 if VENDOR_DIR.exists():
     sys.path.insert(0, str(VENDOR_DIR))
-
 
 def _file_meta(path: Path) -> dict[str, Any]:
     stat = path.stat()
@@ -49,7 +41,6 @@ def _file_meta(path: Path) -> dict[str, Any]:
         "size_bytes": stat.st_size,
         "modified": stat.st_mtime,
     }
-
 
 def _jsonable(value: Any) -> Any:
     if isinstance(value, dict):
@@ -64,7 +55,6 @@ def _jsonable(value: Any) -> Any:
         z = getattr(value, "z", 0)
         return [value.x, value.y, z]
     return str(value)
-
 
 def _layer_flags(layer: Any) -> dict[str, Any]:
     flags: dict[str, Any] = {}
@@ -81,7 +71,6 @@ def _layer_flags(layer: Any) -> dict[str, Any]:
                 pass
     return flags
 
-
 def _header_value(doc: Any, key: str) -> Any:
     try:
         if key in doc.header:
@@ -89,7 +78,6 @@ def _header_value(doc: Any, key: str) -> Any:
     except Exception:
         pass
     return None
-
 
 def _raw_dwg_layers(path: Path) -> tuple[list[dict[str, Any]], dict[int, str]]:
     try:
@@ -127,7 +115,6 @@ def _raw_dwg_layers(path: Path) -> tuple[list[dict[str, Any]], dict[int, str]]:
         pass
     return layers, name_by_handle
 
-
 def _raw_dwg_blocks(path: Path) -> list[dict[str, Any]]:
     try:
         import ezdwg
@@ -144,7 +131,6 @@ def _raw_dwg_blocks(path: Path) -> list[dict[str, Any]]:
             seen.add(block_name)
             blocks.append({"name": block_name, "handle": handle, "description": "", "base_point": None})
     return blocks
-
 
 def read_dwg_direct(path: Path, max_text: int) -> Optional[dict[str, Any]]:
     try:
@@ -202,6 +188,7 @@ def read_dwg_direct(path: Path, max_text: int) -> Optional[dict[str, Any]]:
                         "type": dxftype,
                         "text": text,
                         "handle": str(getattr(entity, "handle", "") or ""),
+                        "rotation": _dxf_rotation(getattr(entity, "dxf", {})),
                     }
                 )
 
@@ -234,7 +221,6 @@ def read_dwg_direct(path: Path, max_text: int) -> Optional[dict[str, Any]]:
     }
     return result
 
-
 def _entity_text(entity: Any) -> str:
     if entity.dxftype() == "MTEXT":
         plain = getattr(entity, "plain_text", None)
@@ -244,6 +230,13 @@ def _entity_text(entity: Any) -> str:
             except Exception:
                 pass
     return str(getattr(entity.dxf, "text", "") or "")
+
+def _dxf_rotation(dxf: Any) -> float | None:
+    try:
+        value = getattr(dxf, "rotation", None)
+        return round(float(value), 6) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def read_dxf(path: Path, max_text: int) -> dict[str, Any]:
@@ -282,6 +275,7 @@ def read_dxf(path: Path, max_text: int) -> dict[str, Any]:
                             "type": dxftype,
                             "text": text,
                             "handle": str(getattr(entity.dxf, "handle", "") or ""),
+                            "rotation": _dxf_rotation(getattr(entity, "dxf", {})),
                         }
                     )
 
@@ -348,7 +342,6 @@ def read_dxf(path: Path, max_text: int) -> dict[str, Any]:
     result.update(_file_meta(path))
     return result
 
-
 def _find_oda_converter() -> Optional[str]:
     candidates = [
         "/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
@@ -359,7 +352,6 @@ def _find_oda_converter() -> Optional[str]:
         if Path(candidate).exists():
             return candidate
     return shutil.which("ODAFileConverter")
-
 
 def _convert_with_ezdwg(src: Path, outdir: Path) -> tuple[Optional[Path], str]:
     try:
@@ -379,7 +371,6 @@ def _convert_with_ezdwg(src: Path, outdir: Path) -> tuple[Optional[Path], str]:
         return None, f"ezdwg conversion failed: {exc}"
     return None, "ezdwg conversion returned no output"
 
-
 def _convert_with_dwg2dxf(exe: str, src: Path, outdir: Path) -> Optional[Path]:
     output = outdir / (src.stem + ".dxf")
     commands = [
@@ -398,7 +389,6 @@ def _convert_with_dwg2dxf(exe: str, src: Path, outdir: Path) -> Optional[Path]:
             return dxf_files[0]
     return None
 
-
 def _convert_with_oda(exe: str, src: Path, outdir: Path) -> Optional[Path]:
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -410,7 +400,6 @@ def _convert_with_oda(exe: str, src: Path, outdir: Path) -> Optional[Path]:
         pass
     dxf_files = list(outdir.glob("*.dxf"))
     return dxf_files[0] if dxf_files else None
-
 
 def convert_dwg_to_dxf(src: Path) -> tuple[Optional[Path], str]:
     with tempfile.TemporaryDirectory(prefix="cad-reader-") as tmp:
@@ -434,7 +423,6 @@ def convert_dwg_to_dxf(src: Path) -> tuple[Optional[Path], str]:
                 return dxf, f"Converted with ODAFileConverter ({oda})"
 
     return None, "No DWG converter found"
-
 
 def render_svg(src: Path, out_dir: Path, stem: Optional[str] = None) -> tuple[Optional[str], str]:
     try:
@@ -467,7 +455,6 @@ def render_svg(src: Path, out_dir: Path, stem: Optional[str] = None) -> tuple[Op
     except Exception as exc:
         return None, f"SVG render failed: {exc}"
 
-
 def render_dwg_svg(src: Path, out_dir: Path) -> tuple[Optional[str], str]:
     try:
         import ezdwg
@@ -479,7 +466,6 @@ def render_dwg_svg(src: Path, out_dir: Path) -> tuple[Optional[str], str]:
             return render_svg(dxf_path, out_dir, stem=src.stem)
     except Exception as exc:
         return None, f"DWG SVG render failed: {exc}"
-
 
 def _detect_kind(path: Path) -> str:
     suffix = path.suffix.lower()
@@ -497,7 +483,6 @@ def _detect_kind(path: Path) -> str:
     if b"SECTION" in head or b"\x00SECT" in head:
         return "DXF"
     return "UNKNOWN"
-
 
 def process_file(path: Path, max_text: int, render: bool, render_dir: Path) -> dict[str, Any]:
     kind = _detect_kind(path)
@@ -541,7 +526,6 @@ def process_file(path: Path, max_text: int, render: bool, render_dir: Path) -> d
         result["render_note"] = render_note
     return result
 
-
 def _collect_files(paths: list[str], recursive: bool) -> list[Path]:
     files: list[Path] = []
     for raw in paths:
@@ -552,7 +536,6 @@ def _collect_files(paths: list[str], recursive: bool) -> list[Path]:
         elif path.exists():
             files.append(path)
     return sorted(dict.fromkeys(files))
-
 
 def format_text(result: dict[str, Any]) -> str:
     lines = [f"File: {result.get('path', '')}"]
@@ -596,7 +579,6 @@ def format_text(result: dict[str, Any]) -> str:
     if result.get("preview_svg"):
         lines.append(f"Preview SVG: {result['preview_svg']}")
     return "\n".join(lines)
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read DWG/DXF CAD files and summarize their contents.")
@@ -660,7 +642,6 @@ def main() -> int:
         print(output)
 
     return 0 if all(result.get("ok", False) for result in results) else 2
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

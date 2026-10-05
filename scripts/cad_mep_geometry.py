@@ -19,19 +19,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / "packs" / "mep-geometry" / "rules.json"
+from cad_contract import contractize_payload
 
-
-def load_rules(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"MEP 识图规则不存在：{path}")
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def compact(text: Any, limit: int = 240) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip()[:limit]
-
-
+from cad_common import compact, load_rules, pattern_hit, match_rule, segment_length
 def data_file_name(data: dict[str, Any], value: Any) -> str:
     """把 cad_scan 的文件索引还原为文件名。"""
     if isinstance(value, dict):
@@ -43,7 +33,6 @@ def data_file_name(data: dict[str, Any], value: Any) -> str:
             return compact(item.get("name") or item.get("path"))
         return compact(item)
     return compact(value)
-
 
 def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
     ev: dict[str, Any] = {
@@ -58,7 +47,6 @@ def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
         if record.get(key) is not None:
             ev[key] = record.get(key)
     return {k: v for k, v in ev.items() if v not in (None, "")}
-
 
 def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
     records = data.get("text_records") or data.get("texts") or []
@@ -89,33 +77,12 @@ def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
         )
     return out
 
-
 def context_of(record: dict[str, Any]) -> tuple[str, Any, Any]:
     return (
         compact(record.get("file_name") or record.get("file")),
         record.get("sheet"),
         record.get("space"),
     )
-
-
-def pattern_hit(value: str, pattern: Any) -> bool:
-    """短 ASCII 代号按边界匹配，避免 AL 误命中 VALVE 等普通单词。"""
-    token = str(pattern).upper()
-    if re.fullmatch(r"[A-Z]{1,3}", token):
-        if re.search(rf"(?<![A-Z0-9]){re.escape(token)}(?![A-Z0-9])", value):
-            return True
-        return bool(re.search(rf"(?<![A-Z0-9]){re.escape(token)}\d", value))
-    return token in value
-
-
-def match_rule(text: Any, rules: list[dict[str, Any]], key: str) -> tuple[str, dict[str, Any], str]:
-    value = compact(text).upper()
-    for rule in rules:
-        for pattern in rule.get("patterns") or []:
-            if pattern_hit(value, pattern):
-                return str(rule.get(key) or ""), rule, str(pattern)
-    return "", {}, ""
-
 
 def sheet_for_point(data: dict[str, Any], x: Any, y: Any) -> Any:
     try:
@@ -137,12 +104,10 @@ def sheet_for_point(data: dict[str, Any], x: Any, y: Any) -> Any:
             return sheet.get("id", sheet.get("sheet"))
     return None
 
-
 def match_view(text: str, rules: dict[str, Any]) -> tuple[str, float, str]:
     kind, _rule, pattern = match_rule(text, rules.get("view_rules") or [], "type")
     confidence = float((rules.get("confidence") or {}).get("direct_label", 0.95))
     return kind, confidence, pattern
-
 
 def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -166,7 +131,6 @@ def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]
             }
         )
     return out
-
 
 def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     scale_re = re.compile(rules.get("scale_pattern") or r"1\s*[:：]\s*\d{1,4}")
@@ -204,7 +168,6 @@ def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any]) -> li
         out.append(item)
     return out
 
-
 def iter_geometry(data: dict[str, Any]):
     segment_files = data.get("geometry_segments") or []
     layer_files = data.get("geometry_layers") or []
@@ -215,7 +178,6 @@ def iter_geometry(data: dict[str, Any]):
                 continue
             layer = compact(layers[si]) if si < len(layers) else ""
             yield fi, si, layer, seg
-
 
 def system_candidates(
     records: list[dict[str, Any]], data: dict[str, Any], rules: dict[str, Any]
@@ -265,14 +227,6 @@ def system_candidates(
         )
     return out
 
-
-def segment_length(seg: list[Any] | tuple[Any, ...]) -> float:
-    try:
-        return math.hypot(float(seg[2]) - float(seg[0]), float(seg[3]) - float(seg[1]))
-    except (TypeError, ValueError):
-        return 0.0
-
-
 def point_segment_distance(px: Any, py: Any, seg: list[Any] | tuple[Any, ...]) -> float | None:
     """点到图面线段的距离；只作证据关联，不换算实际长度。"""
     try:
@@ -286,7 +240,6 @@ def point_segment_distance(px: Any, py: Any, seg: list[Any] | tuple[Any, ...]) -
         return math.hypot(x - x1, y - y1)
     t = max(0.0, min(1.0, ((x - x1) * dx + (y - y1) * dy) / denom))
     return math.hypot(x - (x1 + t * dx), y - (y1 + t * dy))
-
 
 def extract_riser_labels(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[tuple[dict[str, Any], str, str]]:
     pattern = re.compile(rules.get("riser_id_pattern") or r"(?<![A-Za-z0-9])(JL|PL|WL|YL|HL|RL)[-_]?\d+", re.I)
@@ -303,7 +256,6 @@ def extract_riser_labels(records: list[dict[str, Any]], rules: dict[str, Any]) -
             out.append((rec, rid, prefix_system.get(prefix, "")))
     return out
 
-
 def vertical_direction(text: Any, rules: dict[str, Any]) -> str:
     value = compact(text).upper()
     for direction, patterns in (rules.get("vertical_direction_patterns") or {}).items():
@@ -312,10 +264,8 @@ def vertical_direction(text: Any, rules: dict[str, Any]) -> str:
                 return direction
     return "unspecified"
 
-
 def same_sheet(a: Any, b: Any) -> bool:
     return a is None or b is None or a == b
-
 
 def vertical_route_candidates(
     records: list[dict[str, Any]],
@@ -434,7 +384,6 @@ def vertical_route_candidates(
         })
     return out[:200]
 
-
 def topology_audit(routes: list[dict[str, Any]], tolerance: float = 5.0, max_segments: int = 5000) -> dict[str, Any]:
     """按文件、图框、专业系统建立路由连通分量，只输出拓扑候选和复核边界。"""
     grouped: dict[tuple[Any, ...], list[tuple[int, dict[str, Any]]]] = defaultdict(list)
@@ -541,7 +490,6 @@ def topology_audit(routes: list[dict[str, Any]], tolerance: float = 5.0, max_seg
         "boundary": "只做按文件/图框/系统的路由连通分量和拓扑分类候选；不输出管长、工程量或材料量。",
     }
 
-
 def route_segments(
     data: dict[str, Any], rules: dict[str, Any]
 ) -> tuple[list[dict[str, Any]], Counter]:
@@ -576,7 +524,6 @@ def route_segments(
         )
     return out, unmatched
 
-
 def equipment_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -607,7 +554,6 @@ def equipment_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -
             }
         )
     return out
-
 
 def riser_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -660,7 +606,6 @@ def label_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> li
             out.append({"type": "label", "label_type": "system_label", "text": text, "system": system, "layer": layer, "x": rec.get("x"), "y": rec.get("y"), "file": rec.get("file_name"), "sheet": rec.get("sheet"), "status": "candidate", "confidence": float((rules.get("confidence") or {}).get("pattern_match", 0.78)), "evidence": [evidence_of(rec)]})
     return out
 
-
 def connectivity_audit(routes: list[dict[str, Any]], tolerance: float = 5.0, max_segments: int = 5000) -> dict[str, Any]:
     """只做端点吸附和连通性候选，不汇总工程量。"""
     by_context: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
@@ -705,6 +650,182 @@ def connectivity_audit(routes: list[dict[str, Any]], tolerance: float = 5.0, max
         "boundary": "只做端点吸附和连通性候选；不输出管长、工程量或材料量。",
     }
 
+def _nearest_route_endpoint(
+    point: dict[str, Any],
+    route_grid: dict[tuple[Any, Any, int, int], list[tuple[float, float, int, int]]],
+    tolerance: float,
+) -> tuple[float, int, dict[str, Any]] | None:
+    """从端点空间网格中取最近管段端点；只用于关联证据，不换算工程量。"""
+    try:
+        px, py = float(point.get("x")), float(point.get("y"))
+    except (TypeError, ValueError):
+        return None
+    cx, cy = math.floor(px / tolerance), math.floor(py / tolerance)
+    best: tuple[float, int, dict[str, Any]] | None = None
+    for dx in (-1, 0, 1):
+        for dy in (-1, 0, 1):
+            for x, y, route_index, end_index in route_grid.get((point.get("file"), point.get("sheet"), cx + dx, cy + dy), []):
+                distance = math.hypot(px - x, py - y)
+                item = (distance, route_index, end_index)
+                if best is None or item < best:
+                    best = item
+    return best
+
+def mep_relation_candidates(
+    routes: list[dict[str, Any]],
+    equipment: list[dict[str, Any]],
+    risers: list[dict[str, Any]],
+    link_tolerance: float = 2000.0,
+    snap_tolerance: float = 5.0,
+    max_relations: int = 2000,
+) -> list[dict[str, Any]]:
+    """输出管段端点、设备和立管的关联候选；系统冲突和缺失必须进入复核。"""
+    out: list[dict[str, Any]] = []
+    link_cell = max(1e-9, float(link_tolerance))
+    route_grid: dict[tuple[Any, Any, int, int], list[tuple[float, float, int, int]]] = defaultdict(list)
+    valid_routes: list[dict[str, Any]] = []
+    for index, row in enumerate(routes[:5000]):
+        geom = row.get("geometry") or []
+        if not isinstance(geom, (list, tuple)) or len(geom) < 4:
+            continue
+        try:
+            x1, y1, x2, y2 = (float(v) for v in geom[:4])
+        except (TypeError, ValueError):
+            continue
+        valid_routes.append(row)
+        route_index = len(valid_routes) - 1
+        for end_index, (x, y) in enumerate(((x1, y1), (x2, y2))):
+            key = (row.get("file"), row.get("sheet"), math.floor(x / link_cell), math.floor(y / link_cell))
+            route_grid[key].append((x, y, route_index, end_index))
+
+    def relation_row(
+        relation_type: str, system: str, route_index: int, target: dict[str, Any],
+        distance: float, extra_name: Any = None,
+    ) -> dict[str, Any]:
+        row = valid_routes[route_index]
+        geom = row.get("geometry") or []
+        target_name = target.get("name") or target.get("id") or extra_name
+        reasons: list[str] = []
+        confidence = 0.95
+        route_system = str(row.get("system") or "")
+        target_system = str(target.get("system") or "")
+        if route_system and target_system and route_system != target_system:
+            reasons.append("geometry_conflict")
+            confidence = 0.42
+        if not route_system or not target_system:
+            reasons.append("low_confidence_inference")
+            confidence = min(confidence, 0.72)
+        if distance > link_tolerance:
+            reasons.append("ambiguous_text_binding")
+            confidence = 0.42
+        layer = row.get("layer")
+        if not layer:
+            reasons.append("missing_layer")
+        status = "candidate" if not reasons else "review"
+        return {
+            "id": f"mep-relation:{relation_type}:{route_index}:{target_name or ''}:{round(distance, 3)}",
+            "relation_type": relation_type,
+            "system": route_system or target_system,
+            "route_index": route_index,
+            "route_class": row.get("route_class") or "",
+            "target_type": target.get("type") or relation_type.split("_to_")[0],
+            "target_name": target_name,
+            "file": row.get("file"),
+            "sheet": row.get("sheet"),
+            "layer": layer,
+            "geometry": geom,
+            "link_distance_drawing_units": round(distance, 3),
+            "confidence": confidence,
+            "status": status,
+            "review_reasons": reasons,
+            "review_reason": "；".join({
+                "geometry_conflict": "设备/立管系统与管段系统不一致",
+                "low_confidence_inference": "任一侧缺少专业系统标注",
+                "ambiguous_text_binding": "关联距离超出容差",
+                "missing_layer": "管段缺图层证据",
+            }.get(x, x) for x in reasons),
+            "evidence": list(row.get("evidence") or []) + list(target.get("evidence") or []),
+            "method": "endpoint_spatial_link",
+        }
+
+    # 设备→管段端点关联
+    for equipment_index, target in enumerate(equipment[:2000]):
+        nearest = _nearest_route_endpoint(target, route_grid, link_cell)
+        if nearest is None:
+            continue
+        distance, route_index, hit = nearest
+        if distance > link_tolerance:
+            continue
+        row = relation_row("equipment_to_route", "", route_index, target, distance, extra_name=hit)
+        row["equipment_index"] = equipment_index
+        out.append(row)
+
+    # 立管→管段端点关联
+    for riser_index, target in enumerate(risers[:2000]):
+        nearest = _nearest_route_endpoint(target, route_grid, link_cell)
+        if nearest is None:
+            continue
+        distance, route_index, hit = nearest
+        if distance > link_tolerance:
+            continue
+        row = relation_row("riser_to_route", "", route_index, target, distance, extra_name=hit)
+        row["riser_index"] = riser_index
+        out.append(row)
+
+    # 同位置管段端点拓扑关联；系统不同时转复核
+    endpoint_cell = max(1e-9, float(snap_tolerance))
+    endpoint_grid: dict[tuple[Any, Any, int, int], list[tuple[float, float, int, int]]] = defaultdict(list)
+    for route_index, row in enumerate(valid_routes):
+        geom = row.get("geometry") or []
+        for end_index, value in enumerate(((geom[0], geom[1]), (geom[2], geom[3]))):
+            x, y = float(value[0]), float(value[1])
+            key = (row.get("file"), row.get("sheet"), math.floor(x / endpoint_cell), math.floor(y / endpoint_cell))
+            endpoint_grid[key].append((x, y, route_index, end_index))
+    seen_clusters: set[tuple[Any, ...]] = set()
+    for key, points in sorted(endpoint_grid.items(), key=lambda item: tuple(str(v) for v in item[0])):
+        if len(points) < 2:
+            continue
+        route_indexes = tuple(sorted({p[2] for p in points}))
+        if len(route_indexes) < 2 or route_indexes in seen_clusters:
+            continue
+        seen_clusters.add(route_indexes)
+        systems = sorted({str(valid_routes[i].get("system") or "") for i in route_indexes})
+        route_systems = {str(valid_routes[i].get("system") or "") for i in route_indexes}
+        reasons: list[str] = []
+        if len(route_systems) > 1:
+            reasons.append("geometry_conflict")
+        if "" in route_systems:
+            reasons.append("low_confidence_inference")
+        first = valid_routes[route_indexes[0]]
+        geom = first.get("geometry") or []
+        point = points[0]
+        row = {
+            "id": "mep-relation:endpoint:" + ":".join(str(x) for x in route_indexes),
+            "relation_type": "endpoint_connection",
+            "system": systems[0] if len(systems) == 1 else "",
+            "route_indexes": list(route_indexes),
+            "systems": systems,
+            "file": first.get("file"),
+            "sheet": first.get("sheet"),
+            "layer": first.get("layer"),
+            "x": point[0], "y": point[1],
+            "geometry": geom,
+            "confidence": 0.95 if not reasons else 0.42,
+            "status": "candidate" if not reasons else "review",
+            "review_reasons": reasons,
+            "review_reason": "；".join({
+                "geometry_conflict": "同位置端点连接了不同系统",
+                "low_confidence_inference": "端点关联缺少系统标注",
+            }.get(x, x) for x in reasons),
+            "evidence": list(first.get("evidence") or []),
+            "method": "endpoint_cluster",
+        }
+        out.append(row)
+        if len(out) >= max_relations:
+            break
+    out = out[:max_relations]
+    out.sort(key=lambda row: (str(row.get("relation_type")), str(row.get("file") or ""), str(row.get("sheet") or ""), str(row.get("id"))))
+    return out
 
 def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float, link_tolerance: float = 2000.0) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -719,6 +840,7 @@ def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float, link_
     vertical_routes = vertical_route_candidates(records, routes, data, rules, link_tolerance)
     connectivity = connectivity_audit(routes, snap_tolerance)
     topology = topology_audit(routes, snap_tolerance)
+    mep_relations = mep_relation_candidates(routes, equipment, risers, link_tolerance, snap_tolerance)
     review: list[dict[str, Any]] = []
     for row in views:
         if row.get("status") != "candidate":
@@ -735,6 +857,9 @@ def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float, link_
     for row in vertical_routes:
         if row.get("status") != "candidate":
             review.append({"type": "vertical_route", "reason": row.get("review_reason") or "竖向路由需确认", "evidence": row.get("evidence", [])})
+    for row in mep_relations:
+        if row.get("status") != "candidate":
+            review.append({"type": "mep_relation", "reason": row.get("review_reason") or "MEP 关联需确认", "evidence": row.get("evidence", [])})
     for layer, count in unmatched_layers.most_common(50):
         review.append({"type": "route_layer", "reason": f"MEP 图层未分类：{layer}（{count} 段）", "evidence": [{"layer": layer}]})
     if not data.get("geometry_segments") or not data.get("geometry_layers"):
@@ -750,6 +875,8 @@ def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float, link_
         "risers": len(risers),
         "vertical_routes": len(vertical_routes),
         "vertical_routes_review": sum(1 for row in vertical_routes if row.get("status") != "candidate"),
+        "mep_relations": len(mep_relations),
+        "mep_relations_review": sum(1 for row in mep_relations if row.get("status") != "candidate"),
         "topology_components": topology["summary"]["components"],
         "topology_review_components": topology["summary"]["review_components"],
         "connectivity_open_endpoints": connectivity["summary"]["open_endpoints"],
@@ -768,12 +895,12 @@ def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float, link_
         "labels": labels,
         "risers": risers,
         "vertical_routes": vertical_routes,
+        "mep_relations": mep_relations,
         "connectivity": connectivity,
         "topology": topology,
         "review": review,
         "boundary": "只输出安装识图候选、证据、连通性审计和系统拓扑候选；不输出工程量、材料量、损耗、造价或结算量。",
     }
-
 
 def write_markdown(payload: dict[str, Any], path: Path) -> None:
     s = payload["summary"]
@@ -781,8 +908,8 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
         "# 安装识图 / MEP 中间数据复核",
         "",
         f"- 源文件：`{payload['source_file']}`",
-        f"- 候选：图纸类型 {s['drawing_types']}，专业系统 {s['systems']}，路由段 {s['route_segments']}，设备 {s['equipment']}，标注 {s['labels']}，立管 {s['risers']}，竖向路由 {s['vertical_routes']}，拓扑组件 {s['topology_components']}，待复核 {s['review_items']}",
-        f"- 连通性：开放端点 {s['connectivity_open_endpoints']}，汇聚候选 {s['connectivity_junctions']}；拓扑复核组件 {s['topology_review_components']}，竖向路由复核 {s['vertical_routes_review']}",
+        f"- 候选：图纸类型 {s['drawing_types']}，专业系统 {s['systems']}，路由段 {s['route_segments']}，设备 {s['equipment']}，标注 {s['labels']}，立管 {s['risers']}，竖向路由 {s['vertical_routes']}，拓扑组件 {s['topology_components']}，MEP关联 {s['mep_relations']}，待复核 {s['review_items']}",
+        f"- 连通性：开放端点 {s['connectivity_open_endpoints']}，汇聚候选 {s['connectivity_junctions']}；拓扑复核组件 {s['topology_review_components']}，竖向路由复核 {s['vertical_routes_review']}，MEP关联复核 {s['mep_relations_review']}",
         "",
         "## 图纸类型",
         "",
@@ -879,6 +1006,10 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
             writer.writerow(["label", row.get("system", ""), row.get("label_type", ""), row["text"], row.get("layer", ""), row.get("file", ""), row.get("sheet", ""), f"{row.get('x')},{row.get('y')}", row["status"], ""])
         for row in payload["risers"]:
             writer.writerow(["riser", row.get("system", ""), "", row["id"], row.get("layer", ""), row.get("file", ""), row.get("sheet", ""), f"{row.get('x')},{row.get('y')}", row["status"], row.get("review_reason", "")])
+        for row in payload.get("mep_relations", []):
+            geom = row.get("geometry") or []
+            coord = f"{geom[0]},{geom[1]}->{geom[2]},{geom[3]}" if len(geom) >= 4 else f"{row.get('x')},{row.get('y')}"
+            writer.writerow(["mep_relation", row.get("system", ""), row.get("route_class", ""), row.get("relation_type", ""), row.get("layer", ""), row.get("file", ""), row.get("sheet", ""), coord, row["status"], row.get("review_reason", "")])
         for row in payload["review"]:
             writer.writerow(["review", "", "", row["type"], "", "", "", "", "review", row["reason"]])
 
@@ -900,6 +1031,7 @@ def main() -> int:
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules, args.snap_tolerance, args.link_tolerance)
+        payload = contractize_payload(payload, source=src.name)
         json_path = out_dir / f"{src.stem}.mep.json"
         md_path = out_dir / f"{src.stem}.mep.md"
         csv_path = out_dir / f"{src.stem}.mep.csv"
@@ -909,7 +1041,6 @@ def main() -> int:
         outputs.extend([str(json_path), str(md_path), str(csv_path)])
         print(json.dumps({"source": str(src), "summary": payload["summary"], "outputs": [str(json_path), str(md_path), str(csv_path)]}, ensure_ascii=False))
     return 0 if outputs else 4
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

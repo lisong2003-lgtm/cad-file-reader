@@ -107,6 +107,24 @@ class MepGeometryTest(unittest.TestCase):
         self.assertEqual(result["connectivity"]["summary"]["open_endpoints"], 2)
         self.assertEqual(result["connectivity"]["summary"]["isolated_segments"], 1)
 
+    def test_mep_relations_flag_system_conflict(self):
+        detail = {
+            "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 1000, 1000]}]},
+            "files": [{"name": "mep.dwg"}],
+            "text_records": [
+                {"kind": "TEXT", "text": "水泵 P-1", "layer": "EQUIP", "x": 0, "y": 0, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "JL-1", "layer": "RISER", "x": 500, "y": 500, "sheet": 1, "file": 0},
+            ],
+            "geometry_segments": [[[0, 0, 100, 0], [100, 0, 200, 0]]],
+            "geometry_layers": [["PIPE-给水", "PIPE-给水"]],
+        }
+        result, _out = self.run_script(detail)
+        self.assertGreaterEqual(result["summary"]["mep_relations"], 1)
+        self.assertIn("mep_relations", result)
+        self.assertTrue(any(row["relation_type"] == "equipment_to_route" for row in result["mep_relations"]))
+        self.assertTrue(any(row["relation_type"] == "endpoint_connection" for row in result["mep_relations"]))
+        self.assertTrue(any(row["status"] == "candidate" for row in result["mep_relations"]))
+
     def test_topology_closed_loop_and_vertical_geometry_review(self):
         detail = {
             "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 3000, 3000]}]},

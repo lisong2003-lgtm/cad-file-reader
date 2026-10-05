@@ -169,7 +169,12 @@ def parse_profile_text(text: str) -> dict[str, list[dict[str, Any]]]:
 def _scope_key(rec: dict[str, Any]) -> tuple:
     f = rec.get("file")
     s = rec.get("sheet")
-    return (str(f) if f is not None else "", str(s) if s is not None else "")
+    rot = rec.get("rotation")
+    try:
+        ab = int(float(rot) % 180.0 // 5.0) if rot is not None else None
+    except (TypeError, ValueError):
+        ab = None
+    return (str(f) if f is not None else "", str(s) if s is not None else "", ab)
 
 
 def collect_profiles(records: list[dict[str, Any]]) -> dict[tuple, dict[str, list[dict[str, Any]]]]:
@@ -719,7 +724,7 @@ def profiles_by_scope(data: dict[str, Any]) -> dict[tuple, dict[str, list[dict[s
 
 
 def _display_scope(data: dict[str, Any], key: tuple) -> str:
-    file_id, sheet = key
+    file_id, sheet = key[0], key[1]
     try:
         fidx = int(file_id)
         files = data.get("files") or []

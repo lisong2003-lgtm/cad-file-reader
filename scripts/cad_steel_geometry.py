@@ -18,19 +18,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / "packs" / "steel-geometry" / "rules.json"
+from cad_contract import contractize_payload
 
-
-def load_rules(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"钢结构识图规则不存在：{path}")
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def compact(text: Any, limit: int = 240) -> str:
-    return re.sub(r"\s+", " ", str(text or "")).strip()[:limit]
-
-
+from cad_common import compact, load_rules, segment_length
 def data_file_name(data: dict[str, Any], value: Any) -> str:
     if isinstance(value, dict):
         return compact(value.get("name") or value.get("path"))
@@ -41,7 +31,6 @@ def data_file_name(data: dict[str, Any], value: Any) -> str:
             return compact(item.get("name") or item.get("path"))
         return compact(item)
     return compact(value)
-
 
 def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
     ev: dict[str, Any] = {
@@ -56,7 +45,6 @@ def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
         if record.get(key) is not None:
             ev[key] = record.get(key)
     return {k: v for k, v in ev.items() if v not in (None, "")}
-
 
 def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
     records = data.get("text_records") or data.get("texts") or []
@@ -85,17 +73,14 @@ def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
         })
     return out
 
-
 def context_of(record: dict[str, Any]) -> tuple[Any, Any, Any]:
     return (compact(record.get("file_name") or record.get("file")), record.get("sheet"), record.get("space"))
-
 
 def pattern_hit(value: str, pattern: Any) -> bool:
     token = str(pattern).upper()
     if re.fullmatch(r"[A-Z]{1,3}", token):
         return bool(re.search(rf"(?<![A-Z0-9]){re.escape(token)}(?![A-Z0-9])", value))
     return token in value
-
 
 def match_rule(text: Any, rules: list[dict[str, Any]], key: str) -> tuple[str, dict[str, Any], str]:
     value = compact(text).upper()
@@ -104,7 +89,6 @@ def match_rule(text: Any, rules: list[dict[str, Any]], key: str) -> tuple[str, d
             if pattern_hit(value, pattern):
                 return str(rule.get(key) or ""), rule, str(pattern)
     return "", {}, ""
-
 
 def sheet_for_point(data: dict[str, Any], x: Any, y: Any) -> Any:
     try:
@@ -126,7 +110,6 @@ def sheet_for_point(data: dict[str, Any], x: Any, y: Any) -> Any:
             return sheet.get("id", sheet.get("sheet"))
     return None
 
-
 def iter_geometry(data: dict[str, Any]):
     segment_files = data.get("geometry_segments") or []
     layer_files = data.get("geometry_layers") or []
@@ -137,14 +120,6 @@ def iter_geometry(data: dict[str, Any]):
                 continue
             layer = compact(layers[si]) if si < len(layers) else ""
             yield fi, si, layer, seg
-
-
-def segment_length(seg: list[Any] | tuple[Any, ...]) -> float:
-    try:
-        return math.hypot(float(seg[2]) - float(seg[0]), float(seg[3]) - float(seg[1]))
-    except (TypeError, ValueError):
-        return 0.0
-
 
 def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -166,7 +141,6 @@ def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]
             "evidence": [evidence_of(rec)],
         })
     return out
-
 
 def system_candidates(records: list[dict[str, Any]], data: dict[str, Any], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -212,7 +186,6 @@ def system_candidates(records: list[dict[str, Any]], data: dict[str, Any], rules
         })
     return out
 
-
 def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     scale_re = re.compile(rules.get("scale_pattern") or r"1\s*[:：]\s*\d{1,4}")
     unit_patterns = rules.get("unit_patterns") or {}
@@ -245,7 +218,6 @@ def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any]) -> li
         item["confidence"] = float((rules.get("confidence") or {}).get("direct_label", 0.95)) if not missing else float((rules.get("confidence") or {}).get("inferred", 0.5))
         out.append(item)
     return out
-
 
 def member_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -308,7 +280,6 @@ def member_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> l
             })
     return out
 
-
 def section_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -336,7 +307,6 @@ def section_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> 
                         "evidence": [evidence_of(rec)],
                     })
     return out
-
 
 def connection_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -366,7 +336,6 @@ def connection_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) 
         })
     return out
 
-
 def material_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -393,7 +362,6 @@ def material_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) ->
                         "evidence": [evidence_of(rec)],
                     })
     return out
-
 
 def finish_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -422,7 +390,6 @@ def finish_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> l
         })
     return out
 
-
 def node_index(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     regex = re.compile(rules.get("node_pattern") or r"(?<![A-Z0-9])(?:JD|NODE|节点|详图)\\s*[-_#]?\\s*\\d{1,4}[A-Za-z]?(?![A-Z0-9])", re.I)
     out: list[dict[str, Any]] = []
@@ -448,7 +415,6 @@ def node_index(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dic
                 "evidence": [evidence_of(rec)],
             })
     return out
-
 
 def grid_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
     patterns = [
@@ -479,7 +445,6 @@ def grid_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> lis
                     "evidence": [evidence_of(rec)],
                 })
     return out
-
 
 def steel_geometry(data: dict[str, Any], rules: dict[str, Any]) -> tuple[list[dict[str, Any]], Counter]:
     out: list[dict[str, Any]] = []
@@ -516,7 +481,6 @@ def steel_geometry(data: dict[str, Any], rules: dict[str, Any]) -> tuple[list[di
         if not category:
             unmatched[layer or "<空图层>"] += 1
     return out, unmatched
-
 
 def connectivity_audit(geometry: list[dict[str, Any]], tolerance: float = 5.0, max_segments: int = 5000) -> dict[str, Any]:
     by_context: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
@@ -563,7 +527,6 @@ def connectivity_audit(geometry: list[dict[str, Any]], tolerance: float = 5.0, m
         },
         "boundary": "只做端点吸附和钢构件连通性候选；不输出长度汇总、重量、面积、工程量或材料量。",
     }
-
 
 def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float) -> dict[str, Any]:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -628,7 +591,6 @@ def analyze_file(path: Path, rules: dict[str, Any], snap_tolerance: float) -> di
         "review": review,
         "boundary": "只输出钢结构识图候选、证据和连通性审计；不输出重量、面积、长度汇总、材料量、造价或结算量。",
     }
-
 
 def write_markdown(payload: dict[str, Any], path: Path) -> None:
     s = payload["summary"]
@@ -705,7 +667,6 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     lines += ["", f"> {payload['boundary']}", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
-
 def write_csv(payload: dict[str, Any], path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh)
@@ -735,7 +696,6 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
         for row in payload["review"]:
             writer.writerow(["review", "", "", row["type"], "", "", "", "", "review", row["reason"]])
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取钢结构识图中间数据。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
@@ -753,6 +713,7 @@ def main() -> int:
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules, args.snap_tolerance)
+        payload = contractize_payload(payload, source=src.name)
         json_path = out_dir / f"{src.stem}.steel.json"
         md_path = out_dir / f"{src.stem}.steel.md"
         csv_path = out_dir / f"{src.stem}.steel.csv"
@@ -762,7 +723,6 @@ def main() -> int:
         outputs.extend([str(json_path), str(md_path), str(csv_path)])
         print(json.dumps({"source": str(src), "summary": payload["summary"], "outputs": [str(json_path), str(md_path), str(csv_path)]}, ensure_ascii=False))
     return 0 if outputs else 4
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

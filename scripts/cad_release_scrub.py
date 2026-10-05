@@ -4,7 +4,7 @@
 
 判敏感的五类：结果工程量数值（带小数的实测值）、标高数值、绝对介质路径、
 文件摘要串、本机阶段产物文件名。构件计数（如 42 块）与 .py 里的代码常量属方法说明，不算敏感；
-语义版本号（0.12.6）、接口版本标记（v0.21）和耗时/内存标记（11.8s、94MB）同样先摘除再判。
+语义版本号（0.12.6）、接口版本标记（v0.21）、耗时/内存标记（11.8s、94MB）、置信度/规则权重/示例参数和螺栓等级同样先摘除再判。
 默认扫文档与入口脚本（.md/.txt/.sh/.json/.toml），跳过 vendor 等第三方目录。
 """
 from __future__ import annotations
@@ -18,9 +18,16 @@ VERSION_TOKEN = re.compile(r'\d+\.\d+\.\d+')  # 语义版本号不是实测结�
 PERF_TOKEN = re.compile(r'\d+(?:\.\d+)?\s*(?:ms|s(?![a-zA-Z])|秒|MB|GB|%)')  # 耗时/内存不是工程量
 SCHEMA_VERSION = re.compile(r'[vV]\d+\.\d+(?:\.\d+)?')  # v0.21 这类接口版本是标识符
 RUNTIME_VERSION = re.compile(r'(?i)(?:python|pip)[\s=/]*3\.\d+(?:\.\d+)?\+?')  # Python 3.10 这类运行环境版本不是实测结果
+METHOD_TOKEN = re.compile(
+    r'(?i)(?:"?(?:direct_label|pattern_match|context_match|geometry_pattern)"?\s*[:=]?\s*\d+(?:\.\d+)?'
+    r'|置信度\s*[≥><]?\s*\d+(?:\.\d+)?\s*[，,]\s*[^；\n]*?\d+(?:\.\d+)?\s*[-–]\s*\d+(?:\.\d+)?'
+    r'|置信度[^，。；\n]*\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?'
+    r'|--thickness-m\s+\d+(?:\.\d+)?'
+    r'|\b\d{1,2}\.\dS\b)'
+)  # 置信度阈值、示例参数、规则权重与螺栓等级不是工程量
 
 PATTERNS = [
-    ("绝对路径", re.compile(r'<介质路径> + '/' + r'Users/[^/\s]+/[A-Za-z\u4e00-\u9fff]')),
+    ("绝对路径", re.compile(r'/Volumes/|' + '/' + r'Users/[^/\s]+/[A-Za-z\u4e00-\u9fff]')),
     ("文件摘要", re.compile(r'\b[0-9a-f]{16,}\b')),
     ("结果数值", re.compile(r'\b\d{2,4}\.\d{2,}\b|\b\d\.\d{4}\b'
                             r'|(?<![\d./])\d{2,3}\.\d(?![\d.])'
@@ -29,7 +36,7 @@ PATTERNS = [
     ("阶段产物名", re.compile(r'阶段[一二三四五六七八九十]{1,4}')),
 ]
 REDACTIONS = [
-    (re.compile(r'<介质路径>、，）)]*'), '<介质路径>'),
+    (re.compile(r'/Volumes/[^\s、，）)]*'), '<介质路径>'),
     (re.compile(r'\b[0-9a-f]{16,}\b'), '〈摘要已隐去〉'),
     (re.compile(r'(?<![\d./])\d{2,3}\.\d(?![\d.])'), '〈实测〉'),
     (re.compile(r'(?<![\d./])\d\.\d{2,3}(?![\d.])'), '〈实测〉'),
@@ -46,9 +53,9 @@ def scan(files):
         text = path.read_text(errors="ignore")
         for number, line in enumerate(text.splitlines(), 1):
             # 先把 0.12.6 / 1.4.4 这类语义版本号摘掉，避免把版本当成实测结果
-            probe = PERF_TOKEN.sub("P", SCHEMA_VERSION.sub("V",
+            probe = METHOD_TOKEN.sub("M", PERF_TOKEN.sub("P", SCHEMA_VERSION.sub("V",
                         RUNTIME_VERSION.sub("V",
-                        VERSION_TOKEN.sub("V", line))))
+                        VERSION_TOKEN.sub("V", line)))))
             kinds = [name for name, pattern in PATTERNS if pattern.search(probe)]
             if kinds:
                 findings.append((str(path), number, kinds, line.strip()[:120]))

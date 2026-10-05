@@ -1,7 +1,7 @@
 {
   "name": "cad-file-reader",
-  "version": "0.18.0",
-  "description": "本地读取 DWG/DXF/DWT，提取可追溯的图纸证据、几何候选、建筑/结构/安装/钢结构/市政识图候选、系统拓扑、长度/面积/体积测量候选（final_quantity=false）和规范图集元数据；不输出最终工程量或材料量。",
+  "version": "0.25.0",
+  "description": "本地读取 DWG/DXF/DWT，提取可追溯的图纸证据、几何候选、图层/块语义候选、建筑/结构/总图场地/安装/电气（含消防/弱点/智能化）/钢结构/市政/给排水暖通/精装修室内/幕墙/人防/预制装配识图候选、MEP拓扑关联、回路/设备/消防/弱点/智能化/防雷接地候选、图纸变化对比、长度/面积/体积测量候选（final_quantity=false）和规范图集元数据；不输出最终工程量或材料量。",
   "author": "lis",
   "license": "CC-BY-NC-SA-4.0",
   "entry": "SKILL.md",
@@ -14,10 +14,30 @@
     "scripts/install_vendor.sh",
     "scripts/cad_descriptive_geometry.sh",
     "scripts/cad_mep_geometry.sh",
+    "scripts/cad_electrical_geometry.sh",
+    "scripts/cad_structural_geometry.sh",
+    "scripts/cad_site_geometry.sh",
     "scripts/cad_steel_geometry.sh",
     "scripts/cad_municipal_geometry.sh",
-    "scripts/cad_measure.sh"
+    "scripts/cad_deep_geometry.py",
+    "scripts/cad_hvac_plumbing_geometry.sh",
+    "scripts/cad_interior_finish_geometry.sh",
+    "scripts/cad_curtain_wall_geometry.sh",
+    "scripts/cad_civil_defense_geometry.sh",
+    "scripts/cad_precast_geometry.sh",
+    "scripts/cad_measure.sh",
+    "scripts/cad_semantics.sh",
+    "scripts/cad_cache_admin.sh",
+    "scripts/cad_compare.sh",
+    "scripts/cad_validate.sh",
+    "scripts/run_real_dwg_regression.sh",
+    "scripts/run_real_dwg_regression.py",
+    "scripts/cad_legend.sh"
   ],
   "privacy": "本机运行，图纸字节不上传；DWG/DXF 解析使用随包第三方库，详见 NOTICE.md。",
-  "boundary": "只做识图、证据和测量候选（final_quantity=false）；不输出最终工程量、材料量、造价、结算量、规范符合性结论或设计审查结论。"
+  "boundary": "只做识图、证据、语义/拓扑/变化候选和测量候选（final_quantity=false）；不输出最终工程量、材料量、造价、结算量、规范符合性结论或设计审查结论。",
+  "contract_schema": "cad-file-reader/v0",
+  "schemas": [
+    "schemas/candidate-v0.schema.json"
+  ]
 }

@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""本机真实 DWG 识图回归：用知识库真图做电气/结构/总图场地识图回归。
+
+只在本机执行，负责把 cad_scan + 对应识图包串起来并核对候选数。
+清单每条 case 可带 kind=electrical|structural|site（默认 electrical）。
+真图清单由 --manifest 指定，通常放在技能包之外（本地工作区），发布内容不得包含真图路径。
+输出结果为脱敏后的计数与状态，不含图纸字节。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SKILL_DIR = Path(__file__).resolve().parents[1]
+
+
+def run(cmd, **kw):
+    return subprocess.run(cmd, text=True, **kw)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="真实 DWG 回归")
+    ap.add_argument("--manifest", required=True, help="真图清单 JSON")
+    ap.add_argument("--scan-dir", help="复用已有 cad_scan 详情 JSON 的目录（含 <id>_detail.json）")
+    ap.add_argument("--report-json", help="脱敏回归报告输出 JSON；默认 stdout")
+    ap.add_argument("--work-dir", default="", help="临时工作目录前缀（默认用 /tmp）")
+    args = ap.parse_args()
+
+    manifest_path = Path(args.manifest)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cases = manifest.get("cases") or manifest.get("drawings") or []
+    if not cases:
+        print("❌清单没有 drawings/cases", file=sys.stderr)
+        return 2
+    scan_dir = Path(args.scan_dir) if args.scan_dir else None
+    work_root = Path(args.work_dir) if args.work_dir else Path(tempfile.mkdtemp(prefix="cad_real_dwg_"))
+    work_root.mkdir(parents=True, exist_ok=True)
+    results = []
+    failed = 0
+    PACK_GEO = {
+        "electrical": ("cad_electrical_geometry.sh", ".electrical.json", ("drawing_types", "systems", "route_segments", "equipment", "circuits", "specs", "fire_protection", "weak_current", "intelligent_building")),
+        "structural": ("cad_structural_geometry.sh", ".structural.json", ("drawing_types", "systems", "members", "rebars", "nodes", "grids", "structural_geometry")),
+        "site": ("cad_site_geometry.sh", ".site.json", ("drawing_types", "systems", "components", "references", "site_geometry")),
+        "hvac_plumbing": ("cad_deep_geometry.sh", ".hvac_plumbing.json", ("drawing_types", "systems", "components", "references", "geometry")),
+        "interior_finish": ("cad_deep_geometry.sh", ".interior_finish.json", ("drawing_types", "systems", "components", "references", "geometry")),
+        "curtain_wall": ("cad_deep_geometry.sh", ".curtain_wall.json", ("drawing_types", "systems", "components", "references", "geometry")),
+        "civil_defense": ("cad_deep_geometry.sh", ".civil_defense.json", ("drawing_types", "systems", "components", "references", "geometry")),
+        "precast": ("cad_deep_geometry.sh", ".precast.json", ("drawing_types", "systems", "components", "references", "geometry")),
+    }
+    DEEP_PACK_ARG = {
+        "hvac_plumbing": "hvac_plumbing",
+        "interior_finish": "interior_finish",
+        "curtain_wall": "curtain_wall",
+        "civil_defense": "civil_defense",
+        "precast": "precast",
+    }
+    DEEP_SCRIPT = {
+        "hvac_plumbing": "cad_hvac_plumbing_geometry.sh",
+        "interior_finish": "cad_interior_finish_geometry.sh",
+        "curtain_wall": "cad_curtain_wall_geometry.sh",
+        "civil_defense": "cad_civil_defense_geometry.sh",
+        "precast": "cad_precast_geometry.sh",
+    }
+
+    for case in cases:
+        cid = str(case.get("id") or case.get("name") or "")
+        dwg = case.get("path") or case.get("dwg") or ""
+        kind = str(case.get("kind") or case.get("pack") or "electrical")
+        if kind not in PACK_GEO:
+            item = {"id": cid, "name": case.get("name", cid), "status": "skip", "reason": f"未知识图包:{kind}"}
+            results.append(item); continue
+        geo_script, out_suffix, summary_keys = PACK_GEO[kind]
+        expect = case.get("expect") or {summary_keys[-1]: 1}
+        item = {"id": cid, "name": case.get("name", cid), "kind": kind, "status": "pending", "summary": None, "review_items": None}
+        detail_path = None
+        if scan_dir:
+            cand = scan_dir / f"{cid}_detail.json"
+            if cand.exists():
+                detail_path = cand
+        if detail_path is None:
+            if not dwg or not Path(dwg).exists():
+                item["status"] = "skip"; item["reason"] = "真图不存在"; item["path"] = dwg
+                results.append(item); continue
+            case_out = work_root / f"{cid}_scan"
+            detail_path = work_root / f"{cid}_detail.json"
+            t0 = time.time()
+            r = run([str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
+                     "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
+                     "--detail-json", str(detail_path), "--format", "json", "-o", str(case_out)],
+                    capture_output=True)
+            item["scan_seconds"] = round(time.time() - t0, 2)
+            if r.returncode != 0 or not detail_path.exists():
+                item["status"] = "error"; item["reason"] = "cad_scan失败"; item["stderr"] = r.stderr[-500:]
+                results.append(item); failed += 1; continue
+        elif not detail_path.exists():
+            item["status"] = "error"; item["reason"] = "复用详情不存在"
+            results.append(item); failed += 1; continue
+        out_dir = work_root / f"{cid}_{kind}"
+        pack_arg = DEEP_PACK_ARG.get(kind)
+        if pack_arg:
+            geo_script = DEEP_SCRIPT[kind]
+        cmd = [str(SKILL_DIR / "scripts" / geo_script), str(detail_path), "--out-dir", str(out_dir)]
+        if pack_arg:
+            cmd.insert(1, "--pack")
+            cmd.insert(2, pack_arg)
+        t0 = time.time()
+        r = run(cmd, capture_output=True)
+        item["geo_seconds"] = round(time.time() - t0, 2)
+        if r.returncode != 0:
+            item["status"] = "error"; item["reason"] = f"{geo_script}失败"; item["stderr"] = r.stderr[-500:]
+            results.append(item); failed += 1; continue
+        out_json = out_dir / f"{Path(detail_path).stem}{out_suffix}"
+        if not out_json.exists():
+            item["status"] = "error"; item["reason"] = f"{kind}输出缺失"; item["stderr"] = r.stderr[-300:]
+            results.append(item); failed += 1; continue
+        try:
+            payload = json.loads(out_json.read_text(encoding="utf-8"))
+        except Exception as exc:
+            item["status"] = "error"; item["reason"] = f"输出解析失败:{exc}"
+            results.append(item); failed += 1; continue
+        summary = payload.get("summary") or {}
+        item["summary"] = {k: summary.get(k) for k in summary_keys}
+        item["review_items"] = summary.get("review_items")
+        missing = {k: summary.get(k, 0) for k, v in (expect or {}).items() if int(summary.get(k, 0)) < int(v)}
+        if missing:
+            item["status"] = "fail"; item["reason"] = f"领域候选不足:{missing}"
+            failed += 1
+        else:
+            item["status"] = "pass"
+        results.append(item)
+
+    report = {"schema": "cad-real-dwg-regression/v1", "manifest": manifest_path.name, "total": len(results), "passed": sum(1 for x in results if x["status"] == "pass"), "failed": failed, "results": results}
+    text = json.dumps(report, ensure_ascii=False, indent=2)
+    if args.report_json:
+        Path(args.report_json).write_text(text + "\n", encoding="utf-8")
+        print(text)
+    else:
+        print(text)
+    return 0 if failed == 0 else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

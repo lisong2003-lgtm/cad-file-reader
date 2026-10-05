@@ -32,6 +32,7 @@ from cad_steel_geometry import (
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / "packs" / "municipal-geometry" / "rules.json"
+from cad_contract import contractize_payload
 
 
 def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]) -> list[dict[str, Any]]:
@@ -473,6 +474,7 @@ def main() -> int:
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules, args.snap_tolerance)
+        payload = contractize_payload(payload, source=src.name)
         json_path = out_dir / f"{src.stem}.municipal.json"
         md_path = out_dir / f"{src.stem}.municipal.md"
         csv_path = out_dir / f"{src.stem}.municipal.csv"

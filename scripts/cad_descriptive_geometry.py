@@ -15,20 +15,9 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES_PATH = ROOT / "packs" / "descriptive-geometry" / "rules.json"
+from cad_contract import contractize_payload
 
-
-def load_rules(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise FileNotFoundError(f"识图规则不存在：{path}")
-    with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
-
-
-def compact(text: str, limit: int = 240) -> str:
-    text = re.sub(r"\s+", " ", str(text or "")).strip()
-    return text[:limit]
-
-
+from cad_common import compact, load_rules
 def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
     ev = {
         "text": compact(record.get("text", "")),
@@ -43,7 +32,6 @@ def evidence_of(record: dict[str, Any]) -> dict[str, Any]:
             ev[key] = record.get(key)
     return {k: v for k, v in ev.items() if v not in (None, "")}
 
-
 def data_file_name(data: dict[str, Any], value: Any) -> str:
     """把 cad_scan 的文件索引还原为文件名。"""
     if isinstance(value, dict):
@@ -53,7 +41,6 @@ def data_file_name(data: dict[str, Any], value: Any) -> str:
         item = files[value]
         return data_file_name(data, item)
     return parse_file_name(value)
-
 
 def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
     records = data.get("text_records") or data.get("texts") or []
@@ -83,14 +70,12 @@ def read_records(data: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(rec)
     return out
 
-
 def context_of(record: dict[str, Any]) -> tuple[str, Any, Any]:
     return (
         parse_file_name(record.get("file_name") or record.get("file")),
         record.get("sheet"),
         record.get("space"),
     )
-
 
 def match_view(text: str, rules: dict[str, Any]) -> tuple[str, float]:
     for view_type, patterns in rules["view_types"].items():
@@ -99,13 +84,11 @@ def match_view(text: str, rules: dict[str, Any]) -> tuple[str, float]:
                 return view_type, float(rules["confidence"]["direct_label"])
     return "", 0.0
 
-
 def match_room(text: str, rules: dict[str, Any]) -> str:
     for pattern in rules["room_patterns"]:
         if pattern in text:
             return pattern
     return ""
-
 
 def opening_candidates(text: str, rules: dict[str, Any]) -> list[str]:
     heads = "|".join(re.escape(x) for x in rules["opening_patterns"])
@@ -128,7 +111,6 @@ def opening_candidates(text: str, rules: dict[str, Any]) -> list[str]:
         out.append(code)
     return out
 
-
 def practice_part(code: str, text: str, rules: dict[str, Any]) -> str:
     for part, prefixes in rules.get("practice_code_prefixes", {}).items():
         if any(code.lower().startswith(str(prefix).lower()) for prefix in prefixes):
@@ -137,7 +119,6 @@ def practice_part(code: str, text: str, rules: dict[str, Any]) -> str:
         if any(word in text for word in words):
             return part
     return "unknown"
-
 
 def practice_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -155,7 +136,6 @@ def practice_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]
         )
     return out
 
-
 def scale_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for match in re.finditer(rules["scale_pattern"], text):
@@ -168,7 +148,6 @@ def scale_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return out
-
 
 def unit_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
@@ -197,12 +176,10 @@ def unit_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
             )
     return out
 
-
 def parse_file_name(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
-
 
 def median(values: list[float]) -> float:
     if not values:
@@ -212,7 +189,6 @@ def median(values: list[float]) -> float:
     if len(ordered) % 2:
         return float(ordered[mid])
     return (float(ordered[mid - 1]) + float(ordered[mid])) / 2.0
-
 
 def row_groups(records: list[dict[str, Any]], sheet_meta: dict[Any, dict[str, Any]]) -> list[list[dict[str, Any]]]:
     by_context: dict[tuple[Any, Any], list[dict[str, Any]]] = defaultdict(list)
@@ -248,7 +224,6 @@ def row_groups(records: list[dict[str, Any]], sheet_meta: dict[Any, dict[str, An
         if current:
             groups.append(current)
     return groups
-
 
 def build_room_schedules(
     records: list[dict[str, Any]],
@@ -323,11 +298,9 @@ def build_room_schedules(
             seen.add(key)
     return schedules, unbound
 
-
 def context_key(record: dict[str, Any]) -> str:
     file_name = parse_file_name(record.get("file_name") or record.get("file"))
     return f"{file_name}|{record.get('sheet', '')}|{record.get('space', '')}"
-
 
 def summarize_openings(openings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -383,7 +356,6 @@ def summarize_openings(openings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
     return summary
 
-
 def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any], sheet_meta: dict[Any, dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, Any], dict[str, Any]] = defaultdict(
         lambda: {"scales": [], "units": [], "spaces": [], "evidence": [], "record_count": 0}
@@ -435,7 +407,6 @@ def scale_unit_audit(records: list[dict[str, Any]], rules: dict[str, Any], sheet
         audit.append(item)
     return sorted(audit, key=lambda x: (x["file"], str(x["sheet"])))
 
-
 def flatten_geometry(data: dict[str, Any]) -> list[tuple[int, str, list[float]]]:
     segments_raw = data.get("geometry_segments") or []
     layers_raw = data.get("geometry_layers") or []
@@ -474,7 +445,6 @@ def flatten_geometry(data: dict[str, Any]) -> list[tuple[int, str, list[float]]]
             layer = parse_file_name(layer_list[segment_index]) if segment_index < len(layer_list) else ""
             out.append((file_index, layer, values))
     return out
-
 
 def geometry_index(data: dict[str, Any], rules: dict[str, Any]) -> list[dict[str, Any]]:
     patterns = rules.get("geometry_layer_patterns", {})
@@ -540,13 +510,11 @@ def geometry_index(data: dict[str, Any], rules: dict[str, Any]) -> list[dict[str
         )
     return sorted(out, key=lambda x: (x["file"], x["type"], x["layer"]))
 
-
 def geometry_layer_type(layer: str, rules: dict[str, Any]) -> str:
     for kind, words in rules.get("geometry_layer_patterns", {}).items():
         if any(str(word).lower() in str(layer).lower() for word in words):
             return kind
     return ""
-
 
 def sheet_for_point(sheet_meta: dict[Any, dict[str, Any]], x: float, y: float) -> Any:
     for sheet_id, meta in sheet_meta.items():
@@ -560,7 +528,6 @@ def sheet_for_point(sheet_meta: dict[Any, dict[str, Any]], x: float, y: float) -
             continue
     return None
 
-
 def point_segment_distance(px: float, py: float, segment: list[float]) -> float:
     x1, y1, x2, y2 = segment
     dx, dy = x2 - x1, y2 - y1
@@ -570,7 +537,6 @@ def point_segment_distance(px: float, py: float, segment: list[float]) -> float:
     t = max(0.0, min(1.0, t))
     return math.hypot(px - (x1 + t * dx), py - (y1 + t * dy))
 
-
 def point_rectangle_distance(x: float, y: float, bbox: list[float]) -> float:
     x1, y1, x2, y2 = bbox
     if x1 <= x <= x2 and y1 <= y <= y2:
@@ -578,7 +544,6 @@ def point_rectangle_distance(x: float, y: float, bbox: list[float]) -> float:
     dx = max(x1 - x, 0.0, x - x2)
     dy = max(y1 - y, 0.0, y - y2)
     return math.hypot(dx, dy)
-
 
 def intervals_cover(intervals: list[tuple[float, float]], start: float, end: float, eps: float) -> bool:
     current = start
@@ -591,7 +556,6 @@ def intervals_cover(intervals: list[tuple[float, float]], start: float, end: flo
         if current >= end - eps:
             return True
     return current >= end - eps
-
 
 def axis_aligned_rectangles(
     segments: list[tuple[str, list[float]]],
@@ -660,7 +624,6 @@ def axis_aligned_rectangles(
                     )
     return rects, clipped
 
-
 def room_boundaries(
     records: list[dict[str, Any]],
     data: dict[str, Any],
@@ -678,7 +641,7 @@ def room_boundaries(
 
     room_records = [rec for rec in records if rec.get("x") is not None and rec.get("y") is not None and match_room(rec["text"], rules)]
     out: list[dict[str, Any]] = []
-    for (file_index, sheet), segments in sorted(grouped.items()):
+    for (file_index, sheet), segments in sorted(grouped.items(), key=lambda item: (str(item[0][0]), str(item[0][1]))):
         bboxes = [b for _layer, seg in segments for b in [seg]]
         xs = [v for seg in bboxes for v in (seg[0], seg[2])]
         ys = [v for seg in bboxes for v in (seg[1], seg[3])]
@@ -723,7 +686,6 @@ def room_boundaries(
                 out[-1]["status"] = "review"
     return out
 
-
 def node_detail_candidates(text: str, rules: dict[str, Any]) -> list[str]:
     out: list[str] = []
     for pattern in rules.get("node_detail_patterns", []):
@@ -732,7 +694,6 @@ def node_detail_candidates(text: str, rules: dict[str, Any]) -> list[str]:
             if value and value not in out:
                 out.append(value)
     return out
-
 
 def node_detail_index(
     records: list[dict[str, Any]],
@@ -765,7 +726,6 @@ def node_detail_index(
         }
         out.append(item)
     return out
-
 
 def attribute_openings(
     openings: list[dict[str, Any]],
@@ -857,7 +817,6 @@ def attribute_openings(
             geometry["status"] = "candidate"
         opening["geometry"] = geometry
 
-
 def height_candidates_for_boundary(
     boundary: dict[str, Any],
     records: list[dict[str, Any]],
@@ -918,7 +877,6 @@ def height_candidates_for_boundary(
             )
     return out
 
-
 def subtract_and_classify_intervals(
     start: float,
     end: float,
@@ -944,7 +902,6 @@ def subtract_and_classify_intervals(
                 break
         out.append((left, right, kind))
     return out
-
 
 def wall_segments(
     boundaries: list[dict[str, Any]],
@@ -1206,7 +1163,6 @@ def wall_segments(
                 )
     return out
 
-
 def ceiling_feature_tags(text: str, rules: dict[str, Any]) -> list[str]:
     text = str(text or "")
     tags: list[str] = []
@@ -1220,7 +1176,6 @@ def ceiling_feature_tags(text: str, rules: dict[str, Any]) -> list[str]:
         if any(str(pattern).lower() in text.lower() for pattern in patterns):
             tags.append(tag)
     return tags
-
 
 def ceiling_elevation_candidates(text: str, rules: dict[str, Any]) -> list[tuple[float, str]]:
     pattern = rules.get("ceiling_elevation_pattern")
@@ -1236,7 +1191,6 @@ def ceiling_elevation_candidates(text: str, rules: dict[str, Any]) -> list[tuple
         value_m = value / 1000.0 if unit == "mm" else value
         out.append((round(value_m, 6), unit))
     return out
-
 
 def ceiling_zones(
     records: list[dict[str, Any]],
@@ -1416,8 +1370,6 @@ def ceiling_zones(
                 break
     return ordered
 
-
-
 def stair_ramp_step_kind(text: str, rules: dict[str, Any]) -> str:
     """按文字优先判断楼梯、坡道或台阶；坡道优先于楼梯，楼梯优先于台阶。"""
     low = str(text or "").lower()
@@ -1427,14 +1379,12 @@ def stair_ramp_step_kind(text: str, rules: dict[str, Any]) -> str:
                 return kind
     return ""
 
-
 def stair_ramp_step_materials(text: str, rules: dict[str, Any]) -> list[str]:
     low = str(text or "").lower()
     return list(dict.fromkeys(
         str(pattern) for pattern in rules.get("stair_material_patterns", [])
         if str(pattern).lower() in low
     ))
-
 
 def stair_ramp_step_area_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     pattern = rules.get("stair_area_pattern")
@@ -1459,7 +1409,6 @@ def stair_ramp_step_area_candidates(text: str, rules: dict[str, Any]) -> list[di
         )
     return out
 
-
 def stair_ramp_step_count_candidates(text: str, rules: dict[str, Any]) -> list[int]:
     pattern = rules.get("stair_count_pattern")
     if not pattern:
@@ -1474,13 +1423,11 @@ def stair_ramp_step_count_candidates(text: str, rules: dict[str, Any]) -> list[i
             out.append(value)
     return out
 
-
 def stair_ramp_step_slope_candidates(text: str, rules: dict[str, Any]) -> list[str]:
     pattern = rules.get("stair_slope_pattern")
     if not pattern:
         return []
     return list(dict.fromkeys(match.group(0) for match in re.finditer(pattern, str(text or ""), re.I)))
-
 
 def stair_ramp_step_dimension_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     pattern = rules.get("dimension_pattern")
@@ -1490,7 +1437,6 @@ def stair_ramp_step_dimension_candidates(text: str, rules: dict[str, Any]) -> li
     for match in re.finditer(pattern, str(text or ""), re.I):
         out.append({"values": [match.group(1), match.group(2)], "raw": match.group(0)})
     return out
-
 
 def stair_ramp_step_candidates(
     records: list[dict[str, Any]],
@@ -1613,8 +1559,6 @@ def stair_ramp_step_candidates(
         )
     return out
 
-
-
 def exterior_wall_zone_kind(text: str, rules: dict[str, Any]) -> str:
     """按文字优先区分防火隔离带、女儿墙内侧、保温、饰面和外墙。"""
     low = str(text or "").lower()
@@ -1630,14 +1574,12 @@ def exterior_wall_zone_kind(text: str, rules: dict[str, Any]) -> str:
             return kind
     return ""
 
-
 def exterior_wall_material_candidates(text: str, rules: dict[str, Any]) -> list[str]:
     low = str(text or "").lower()
     return list(dict.fromkeys(
         str(pattern) for pattern in rules.get("exterior_wall_material_patterns", [])
         if str(pattern).lower() in low
     ))
-
 
 def exterior_wall_thickness_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     pattern = rules.get("exterior_wall_thickness_pattern")
@@ -1665,7 +1607,6 @@ def exterior_wall_thickness_candidates(text: str, rules: dict[str, Any]) -> list
         )
     return out
 
-
 def exterior_elevation_candidates(text: str, rules: dict[str, Any]) -> list[dict[str, Any]]:
     pattern = rules.get("exterior_elevation_pattern")
     if not pattern:
@@ -1691,7 +1632,6 @@ def exterior_elevation_candidates(text: str, rules: dict[str, Any]) -> list[dict
             }
         )
     return out
-
 
 def exterior_wall_zones(
     records: list[dict[str, Any]],
@@ -1822,7 +1762,6 @@ def exterior_wall_zones(
             }
         )
     return out
-
 
 def analyze_file(path: Path, rules: dict[str, Any]) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as fh:
@@ -2058,7 +1997,6 @@ def analyze_file(path: Path, rules: dict[str, Any]) -> dict[str, Any]:
         "boundary": "候选中间数据；不输出工程量。",
     }
 
-
 def write_markdown(payload: dict[str, Any], path: Path) -> None:
     summary = payload["summary"]
     lines = [
@@ -2239,7 +2177,6 @@ def write_markdown(payload: dict[str, Any], path: Path) -> None:
     lines += ["", "## 边界", "", "本报告只给候选中间数据和证据，不输出工程量。", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
-
 def write_csv(payload: dict[str, Any], path: Path) -> None:
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.writer(fh)
@@ -2324,7 +2261,6 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
                  row["confidence"], row["status"], row["review_reason"]]
             )
 
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取装饰识图中间数据。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
@@ -2343,6 +2279,7 @@ def main() -> int:
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules)
+        payload = contractize_payload(payload, source=src.name)
         json_path = out_dir / f"{src.stem}.descriptive.json"
         md_path = out_dir / f"{src.stem}.descriptive.md"
         csv_path = out_dir / f"{src.stem}.descriptive.csv"
@@ -2361,7 +2298,6 @@ def main() -> int:
         print("❌无输出失败", file=sys.stderr)
         return 4
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

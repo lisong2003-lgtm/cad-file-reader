@@ -12,6 +12,7 @@ cad_scan.py — 低内存、免 CAD 软件的 DWG/DXF 图纸文字与构件型�
   python3 cad_scan.py 图纸.dwg                      # Markdown 构件清单到 stdout
   python3 cad_scan.py 目录 --glob "*.dwg" -o out     # 批量，写 out.md/out.json/out.csv
   python3 cad_scan.py 图纸.dwg --filter "板厚|C30"    # 只要含关键词的原文
+  python3 cad_scan.py 图纸.dwg --cache-dir /tmp/cad-cache --roi 0,0,30000,20000
 """
 from __future__ import annotations
 
@@ -38,6 +39,11 @@ import signal
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+from cad_scan_cache import (
+    load_cached_scan, file_digest, profile_for, save_cached_scan,
+    records_in_roi, segments_in_roi, sheets_in_roi, sheet_bbox, sheet_id,
+)
 
 VENDOR = Path.home() / ".codex/skills/cad-file-reader/vendor"
 if VENDOR.is_dir():
@@ -367,7 +373,8 @@ def dxf_records(path: str, max_rows: int, log) -> tuple[list[dict], list[str], l
             if txt.strip():
                 recs.append({"kind": buf["_kind"], "text": clean_mtext(txt),
                              "x": _num(buf.get("10")), "y": _num(buf.get("20")),
-                             "layer": layer or None})
+                             "layer": layer or None,
+                             "rotation": _num(buf.get("50"))})
         if buf.get("_kind") == "INSERT" and buf.get("2"):
             blocks[buf["2"]] += 1
         buf = {}
@@ -789,6 +796,14 @@ def new_slot():
             "l_cnt": "", "l_txt": "", "l_dia": ""}
 
 
+def angle_bucket(rotation: float, bucket_deg: float = 5.0) -> int | None:
+    """把旋转角归一到 0-180° 后按 bucket_deg 分桶；缺失返回 None。"""
+    if not isinstance(rotation, (int, float)) or not math.isfinite(float(rotation)):
+        return None
+    deg = float(rotation) % 180.0
+    return int(deg // max(1e-9, float(bucket_deg)))
+
+
 def analyse(recs, layers, meta, keep=None, dedupe=1500.0, count_by="auto"):
     """按文字规则识别构件编号。
 
@@ -818,7 +833,11 @@ def analyse(recs, layers, meta, keep=None, dedupe=1500.0, count_by="auto"):
                 seen_practices.add(key)
                 practices.append(p)
         x, y = r.get("x"), r.get("y")
-        bk = (r.get("file"), r.get("sheet"), int(x // dedupe), int(y // dedupe)) if sane(x, y) else ("@", n)
+        ab = angle_bucket(r.get("rotation"), bucket_deg=5.0)
+        if sane(x, y):
+            bk = (r.get("file"), r.get("sheet"), int(x // dedupe), int(y // dedupe), ab)
+        else:
+            bk = ("@", n, ab)
         sized = False
         for cat, pat in CODE_PATTERNS:
             for m in pat.finditer(t):
@@ -1186,6 +1205,7 @@ def jsonable(res):
             "practices": res.get("practices"),
             "concrete": res["concrete"], "slab_thk": res["slab_thk"],
             "layers": res["layers"], "meta": res["meta"], "text_total": res["text_total"],
+            "cache": res.get("cache"),
             "keyword_rows": res["keyword_rows"][:2000], "notes": res["notes"], "files": res["files"]}
 
 
@@ -1226,10 +1246,13 @@ def main():
     ap.add_argument("--format", default="md", help="md|json|csv|all")
     ap.add_argument("--spec-table", action="store_true",
                     help="额外出规格表：板厚/混凝土等级/保护层/抗震等级（md 追加一节，csv 另写 -spec.csv）")
+    ap.add_argument("--cache-dir", default=None,
+                    help="启用 cad_scan 证据缓存并指定目录；同图重复查询不再重复解码")
+    ap.add_argument("--roi", default=None,
+                    help="局部读取图面矩形 left,bottom,right,top（图纸单位）")
+    ap.add_argument("--sheet", default=None,
+                    help="局部读取缓存中的一个图框编号")
     args = ap.parse_args()
-
-    if args.worker:
-        sys.exit(_worker(args.worker, args.paths[0]))
 
     want = set(TEXT_KINDS[:1])
     if args.with_mtext:
@@ -1253,6 +1276,35 @@ def main():
     def rss_mb():
         return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6)
 
+    if args.worker:
+        sys.exit(_worker(args.worker, args.paths[0]))
+
+    roi = None
+    if args.roi:
+        try:
+            vals = [float(x) for x in args.roi.split(",")]
+            if len(vals) != 4 or not all(math.isfinite(x) for x in vals):
+                raise ValueError
+            roi = (min(vals[0], vals[2]), min(vals[1], vals[3]),
+                   max(vals[0], vals[2]), max(vals[1], vals[3]))
+        except Exception:
+            print("❌ --roi 参数无效；请使用 left,bottom,right,top", file=sys.stderr)
+            return 2
+    sheet = None
+    if args.sheet is not None:
+        try:
+            sheet = int(args.sheet)
+            if sheet <= 0:
+                raise ValueError
+        except Exception:
+            print("❌ --sheet 参数无效；请使用缓存图框编号", file=sys.stderr)
+            return 2
+    if roi is not None and sheet is not None:
+        print("❌ --roi 和 --sheet 只能选择一个局部范围", file=sys.stderr)
+        return 2
+    cache_dir = Path(args.cache_dir).expanduser() if args.cache_dir else None
+    scan_profile = profile_for(args, want)
+
     keep = re.compile(args.flt, re.I) if args.flt else None
     all_recs: list[dict] = []
     all_layers: set[str] = set()
@@ -1261,6 +1313,7 @@ def main():
     notes: list[str] = []
     seg_files: list[list] = []
     seg_layers_files: list[list] = []
+    sheet_base = 0
 
     for f in files:
         import time
@@ -1273,76 +1326,182 @@ def main():
             notes.append(f"{f.name}: 读取失败 {e}")
             continue
         fmt = detect_format(head, f.suffix.lower())
-        if fmt == "DXF":
+        cached = None
+        digest = None
+        cache_read_ms = 0.0
+        cache_write_ms = 0.0
+        cache_file = None
+        if cache_dir is not None:
             try:
-                recs, layers, n, meta = dxf_records(str(f), args.max_rows, log)
+                digest = file_digest(f)
+                query_sheet = None
+                if sheet is not None:
+                    local_sheet = sheet - sheet_base
+                    query_sheet = local_sheet if local_sheet > 0 else 0
+                cache_t0 = time.perf_counter()
+                cached = load_cached_scan(f, cache_dir, digest, scan_profile,
+                                          roi=roi, sheet=query_sheet)
+                cache_read_ms = (time.perf_counter() - cache_t0) * 1000.0
+                if cached and cached.get("cache_file"):
+                    cache_file = str(cached["cache_file"])
             except Exception as e:
-                n, recs, layers, meta = [f"DXF 解析失败：{e}"], [], [], {}
+                cache_read_ms = (time.perf_counter() - cache_t0) * 1000.0 if 'cache_t0' in locals() else 0.0
+                notes.append(f"{f.name}: 缓存读取失败 {e}")
+                cached = None
+
+        file_notes: list[str] = []
+        local_sheets: list[dict] = []
+        gsegs: list = []
+        glayers: list[str] | None = [] if args.with_geom_layer else None
+        if cached is not None:
+            recs, layers, meta = cached["recs"], cached["layers"], cached["meta"]
+            local_sheets = list(meta.pop("sheets", []) or [])
+            file_sheet_count = int(cached.get("sheet_count") or len(local_sheets))
+            gsegs = list(cached.get("segs") or []) if args.with_geom else []
+            glayers = list(cached.get("seg_layers") or []) if args.with_geom_layer else None
+            notes.append(f"{f.name}: 缓存命中（{'局部' if cached.get('partial') else '全量'}）")
+            for x in cached.get("notes") or []:
+                notes.append(f"{f.name}: {x}")
         else:
-            try:
-                recs, layers, n, meta = dwg_records(
-                    str(f), want | ({"insert"} if args.with_insert else set()),
-                    args.budget, args.max_rows, log, want_blocks=args.with_blocks)
-            except Exception as e:
-                n, recs, layers, meta = [f"DWG 解析失败：{e}（如需可转 DXF）"], [], [], {}
-        notes += [f"{f.name}: {x}" for x in n]
+            if fmt == "DXF":
+                try:
+                    recs, layers, n, meta = dxf_records(str(f), args.max_rows, log)
+                except Exception as e:
+                    n, recs, layers, meta = [f"DXF 解析失败：{e}"], [], [], {}
+            else:
+                try:
+                    recs, layers, n, meta = dwg_records(
+                        str(f), want | ({"insert"} if args.with_insert else set()),
+                        args.budget, args.max_rows, log, want_blocks=args.with_blocks)
+                except Exception as e:
+                    n, recs, layers, meta = [f"DWG 解析失败：{e}（如需可转 DXF）"], [], [], {}
+            file_notes = list(n)
+            notes += [f"{f.name}: {x}" for x in n]
+            for r in recs:
+                r["file"] = len(fstats)
+            if recs and not args.no_sheet:
+                anchors = []
+                if args.sheets in ("auto", "frame"):
+                    anchors = frame_anchors(recs)
+                try:
+                    if anchors and args.sheets != "grid":
+                        local_sheets = assign_sheets_by_frames(recs, anchors, args.sheet_min)
+                        if local_sheets:
+                            notes.append(f"{f.name}: 按图框块定位（{len(local_sheets)}/{len(anchors)} 个图框有内容）")
+                    if not local_sheets:
+                        local_sheets = assign_sheets(recs, args.sheet_bin, args.sheet_min)
+                        if anchors and args.sheets != "grid":
+                            notes.append(f"{f.name}: 图框块命中率低，改用坐标空隙分图框")
+                        elif args.sheets == "frame":
+                            notes.append(f"{f.name}: 没找到图框块，改用坐标空隙分图框（--with-insert 可提高准确率）")
+                except Exception as e:
+                    local_sheets = []
+                    notes.append(f"{f.name}: 分图框失败 {e}")
+
+            if args.with_geom:
+                if fmt == "DWG":
+                    if args.with_geom_layer:
+                        gsegs, glayers, gn = geometry_segments(str(f), args.budget, log, include_layers=True)
+                    else:
+                        gsegs, gn = geometry_segments(str(f), args.budget, log)
+                elif fmt == "DXF":
+                    if args.with_geom_layer:
+                        gsegs, glayers, gn = dxf_geometry_segments(str(f), args.budget, log, include_layers=True)
+                    else:
+                        gsegs, gn = dxf_geometry_segments(str(f), args.budget, log)
+                else:
+                    gsegs, gn = [], []
+                glayers = glayers if args.with_geom_layer else None
+                file_notes.extend(gn)
+                notes += [f"{f.name}: {x}" for x in gn]
+
+            if cache_dir is not None:
+                cache_meta = dict(meta)
+                cache_meta["sheets"] = local_sheets
+                cache_t0 = time.perf_counter()
+                saved = save_cached_scan(
+                    f, cache_dir, digest, scan_profile, recs, layers, cache_meta,
+                    gsegs if args.with_geom else [],
+                    glayers if args.with_geom and args.with_geom_layer else [],
+                    file_notes)
+                cache_write_ms = (time.perf_counter() - cache_t0) * 1000.0
+                if saved:
+                    cache_file = str(saved)
+                    notes.append(f"{f.name}: 证据缓存已写入")
+                else:
+                    notes.append(f"{f.name}: 缓存未写入（解码不完整或写入失败）")
+
+        # 缓存内保存的是本文件局部图框编号；进入汇总前统一偏移。
+        if cached is None:
+            file_sheet_count = len(local_sheets)
+        base = sheet_base
+        file_sheets: list[dict] = []
+        for s in local_sheets:
+            row = dict(s)
+            row["id"] = int(row.get("id") or 0) + base
+            row["file"] = f.name
+            file_sheets.append(row)
         for r in recs:
             r["file"] = len(fstats)
-        if recs and not args.no_sheet:
-            anchors = []
-            if args.sheets in ("auto", "frame"):
-                anchors = frame_anchors(recs)
-            try:
-                sheets = []
-                if anchors and args.sheets != "grid":
-                    sheets = assign_sheets_by_frames(recs, anchors, args.sheet_min)
-                    if sheets:
-                        notes.append(f"{f.name}: 按图框块定位（{len(sheets)}/{len(anchors)} 个图框有内容）")
-                if not sheets:
-                    sheets = assign_sheets(recs, args.sheet_bin)
-                    if anchors and args.sheets != "grid":
-                        notes.append(f"{f.name}: 图框块命中率低，改用坐标空隙分图框")
-                    elif args.sheets == "frame":
-                        notes.append(f"{f.name}: 没找到图框块，改用坐标空隙分图框（--with-insert 可提高准确率）")
-            except Exception as e:
-                sheets = []
-                notes.append(f"{f.name}: 分图框失败 {e}")
-            base = len(all_meta.get("sheets") or [])
-            for s in sheets:
-                s["id"] = s["id"] + base
-                s["file"] = f.name
-                all_meta.setdefault("sheets", []).append(s)
-            for r in recs:
-                if r.get("sheet"):
-                    r["sheet"] += base
-        if args.with_geom:
-            if fmt == "DWG":
-                if args.with_geom_layer:
-                    gsegs, glayers, gn = geometry_segments(str(f), args.budget, log, include_layers=True)
-                    seg_layers_files.append(glayers)
-                else:
-                    gsegs, gn = geometry_segments(str(f), args.budget, log)
-            elif fmt == "DXF":
-                if args.with_geom_layer:
-                    gsegs, glayers, gn = dxf_geometry_segments(str(f), args.budget, log, include_layers=True)
-                    seg_layers_files.append(glayers)
-                else:
-                    gsegs, gn = dxf_geometry_segments(str(f), args.budget, log)
+            sid = sheet_id(r)
+            if sid is not None:
+                r["sheet"] = sid + base
+
+        partial = roi is not None or sheet is not None
+        if roi is not None:
+            file_sheets = sheets_in_roi(file_sheets, roi)
+            recs = records_in_roi(recs, roi)
+            gsegs, glayers = segments_in_roi(
+                gsegs, roi, glayers if args.with_geom_layer else None)
+        elif sheet is not None:
+            file_sheets = [s for s in file_sheets if int(s.get("id") or 0) == sheet]
+            recs = [r for r in recs if sheet_id(r) == sheet]
+            bbox = sheet_bbox(file_sheets, sheet)
+            if bbox is not None:
+                gsegs, glayers = segments_in_roi(
+                    gsegs, bbox, glayers if args.with_geom_layer else None)
             else:
-                gsegs, gn = [], []
-            notes += [f"{f.name}: {x}" for x in gn]
-            seg_files.append(gsegs)
+                gsegs, glayers = [], [] if args.with_geom_layer else None
+
+        if partial:
+            layers = sorted({str(r.get("layer") or "") for r in recs} - {""})
+        all_meta.setdefault("sheets", []).extend(file_sheets)
+        sheet_base += file_sheet_count
         all_recs += recs
         all_layers |= set(layers)
-        for k, v in (meta.get("block_refs") or {}).items():
-            all_meta["block_refs"][k] = all_meta["block_refs"].get(k, 0) + v
-        all_meta["insert_count"] = all_meta.get("insert_count", 0) + (meta.get("insert_count") or 0)
+        if not partial:
+            for k, v in (meta.get("block_refs") or {}).items():
+                all_meta["block_refs"][k] = all_meta["block_refs"].get(k, 0) + v
+            all_meta["insert_count"] = all_meta.get("insert_count", 0) + (meta.get("insert_count") or 0)
+
+        cache_bytes = 0
+        if cache_file:
+            try:
+                cache_bytes = Path(cache_file).stat().st_size
+            except OSError:
+                cache_bytes = 0
         st = {"name": f.name, "path": str(f), "fmt": fmt,
-              "texts": len(recs), "layers": len(layers), "secs": round(time.time() - t0, 1), "rss": rss_mb()}
+              "texts": len(recs), "layers": len(layers), "secs": round(time.time() - t0, 1), "rss": rss_mb(),
+              "cache": "hit" if cached is not None else "miss",
+              "cache_read_ms": round(max(0.0, cache_read_ms), 3),
+              "cache_write_ms": round(max(0.0, cache_write_ms), 3),
+              "cache_bytes": cache_bytes,
+              "cache_file": cache_file}
         fstats.append(st)
-        if args.with_geom and seg_files:
-            st["segs"] = len(seg_files[-1])
+        if args.with_geom:
+            st["segs"] = len(gsegs)
+            seg_files.append(gsegs)
+            if args.with_geom_layer:
+                seg_layers_files.append(glayers or [])
         log(f"完成 {round(time.time()-t0,1)}s / 峰值内存 {rss_mb()}MB")
+
+    if sheet is not None and not all_recs:
+        notes.append(f"--sheet {sheet} 未命中；已保留空结果，未编造图框内容")
+    if partial:
+        # 局部查询只输出命中范围内的证据；空块统计容器也不留在 JSON 中。
+        all_meta.pop("block_refs", None)
+        all_meta.pop("insert_count", None)
+        all_meta.pop("block_defs", None)
 
     res = analyse(cluster_records(all_recs, args.cluster), sorted(all_layers), all_meta, keep,
                   dedupe=args.dedupe, count_by=args.count_by)
@@ -1357,6 +1516,20 @@ def main():
         res["members"] = {c: v for c, v in res["members"].items() if c in pick}
     res["notes"] = notes
     res["files"] = fstats
+    if cache_dir is not None:
+        cache_files = {
+            x["cache_file"]: int(x.get("cache_bytes") or 0)
+            for x in fstats if x.get("cache_file")
+        }
+        res["cache"] = {
+            "dir": str(cache_dir),
+            "hits": sum(1 for x in fstats if x.get("cache") == "hit"),
+            "misses": sum(1 for x in fstats if x.get("cache") == "miss"),
+            "read_ms": round(sum(float(x.get("cache_read_ms") or 0.0) for x in fstats), 3),
+            "write_ms": round(sum(float(x.get("cache_write_ms") or 0.0) for x in fstats), 3),
+            "db_files": len(cache_files),
+            "db_bytes": sum(cache_files.values()),
+        }
     all_meta.pop("segs", None)
 
     md = to_md(res, fstats)

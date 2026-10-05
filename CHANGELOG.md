@@ -1,4 +1,98 @@
+## 0.25.0 — 2026-10-05
+
+按优化建议落地 P0/P1 识图准确率与契约增强（纯规则/轻量知识表，不引入视觉模型）。
+
+- 旋转感知标注：`cad_scan` DXF 流式解码与 `read_cad` 捕获文字实体旋转角（`rotation`）；`cad_scan.analyse()` 按 0-180° 每 5° 分桶加入位置键，同位置不同旋转拆分为独立标注位置，`cad_interpret._scope_key` 同步带上旋转桶，供斜向标注正确归属与证据追溯。
+- 图例知识表：新增 `scripts/cad_legend.py/.sh` 与 `rules/legends.json`，按专业扩充到 14 组 205 个关键词（消防报警、照明、动力、弱电智能、给排水、暖通、消防水、钢结构、市政、人防、预制、装饰、幕墙、测量标注），支持 `symbols` 符号指纹表（12 组块/符号别名）优先匹配块引用；同名 INSERT 文字不再覆盖块指纹。输出 `legend_matches` 候选和 `discipline_refs`。
+- 契约增强：candidate 新增可选 `rotation`、`confidence_scores`（证据子项强度）、`discipline_refs`（跨专业视角），schema 与 `cad_validate` 向后兼容。
+- `cad_contract.py` 注册 `legend_matches` 章节；`test_cad_legend.py` 3 项（含符号指纹去重优先级），完整自测 95 项通过。
+- 端到端示例验证：图例词库命中 6 条候选，`cad_validate.sh` 校验通过。
+- 边界不变：全部候选固定 `final_quantity=false`，不输出工程量/材料量/造价；图例词库只做识图辅助不改算量口径。
+
+## 0.24.0 — 2026-10-05
+
+新增纵深专业识图引擎与 5 个深化识图包（按建议继续补充）。
+
+- 新增通用引擎 `scripts/cad_deep_geometry.py`：读取 `cad_scan` 详情 JSON，按 `--pack` 加载对应规则包，输出 `*.<pack>.json/md/csv` 与 `cad-file-reader/v0` contract，统一固定 `final_quantity=false`。
+- 新增 `packs/hvac-plumbing-geometry/` + `scripts/cad_hvac_plumbing_geometry.sh`：给水/排水/消防水/暖通/防排烟/泵房/支吊架图纸类型与系统，管道、风管、风机盘管/风口/设备、支吊架构件，管径（DN/De/D）、标高、设备/立管编号候选。
+- 新增 `packs/interior-finish-geometry/` + `scripts/cad_interior_finish_geometry.sh`：精装修平面/立面/节点/做法表/门窗表/固定家具，地面/墙面/顶棚/踢脚/家具/防水构件，做法编号/材料/标高/节点候选。
+- 新增 `packs/curtain-wall-geometry/` + `scripts/cad_curtain_wall_geometry.sh`：玻璃/石材/金属/单元式幕墙，立柱/横梁/面板/开启/预埋件/胶条构件，分格/标高/板块/预埋编号候选。
+- 新增 `packs/civil-defense-geometry/` + `scripts/cad_civil_defense_geometry.sh`：防护单元/人防墙/防护密闭门/防爆波活门/滤毒通风/洗消/人防电气，门号/抗力等级/标高/设备编号候选。
+- 新增 `packs/precast-geometry/` + `scripts/cad_precast_geometry.sh`：预制墙/叠合板/预制楼梯/预制梁柱/预埋件/连接节点，构件编号/桁架筋/标高/预埋编号候选。
+- `cad_contract.py` 注册 `hvac_plumbing_geometry`、`interior_finish_geometry`、`curtain_wall_geometry`、`civil_defense_geometry`、`precast_geometry`（line）章节。
+- 新增 5 组（10 项）合成回归；完整自测 87 项通过。
+- 边界不变：只出识图与证据候选，不展开管道长度/风管面积、不输出饰面面积/排版数量/幕墙面积/板块数量/人防或预制构件数量/体积、材料量或造价。
+- 真实回归：本机知识库 7 张真图验证（结构/总图场地/给排水喷淋/人防/精装修/幕墙/预制装配）7/7 pass；幕墙用会展2#立面/LM，预制装配用安置五装配式改铝膜结构，回归清单仅存本机、发布前脱敏。
+- 发布前脱敏自检通过（扫描 63 文件，命中 0 处）。
+
+## 0.23.0 — 2026-10-05
+
+新增结构识图候选包与总图/场地识图候选包（按用户建议补充的两个专业识图能力）。
+
+- 新增 `packs/structural-geometry/`（SKILL.md + rules.json）与 `scripts/cad_structural_geometry.sh/.py`：识别结构平面/配筋/基础/楼梯/节点详图/柱表/结构说明等图纸类型，混凝土/钢筋/基础/楼梯/预制/加固系统，梁/板/柱/墙/基础/楼梯/洞口加强/节点加强构件，HPB300/HRB400 配筋标注（直径@间距、纵筋/箍筋/附加筋/负筋/拉筋/分布筋），KL/WKL/KZ/YBZ/GBZ/LB/WB/Q/CT/FB/JZL 结构编号，节点/轴网/标高候选；输出 `*_structural.json/md/csv` 与 contract。
+- 新增 `packs/site-geometry/`（SKILL.md + rules.json）与 `scripts/cad_site_geometry.sh/.py`：识别总平面、竖向、管线综合、道路纵横断面、挡土墙/边坡、停车、景观图纸与系统，红线/道路/人行道/路缘石/停车位/挡墙/护坡/排水沟/雨水口/检查井/管线/高程点/土方挖填/绿化铺装构件，桩号/坐标/标高/盘区编号标注候选；输出 `*_site.json/md/csv` 与 contract。
+- `cad_contract.py` 注册 `rebars`（text）、`structural_geometry`（line）、`site_geometry`（line）章节；统一候选契约保持 `final_quantity=false`。
+- 缺几何、缺图纸类型、缺比例/单位、缺图层、配筋/标高/桩号未绑定几何进入 `review`；不默认按比例推算。
+- 新增结构识图测试 2 项（结构提取通过、缺比例/几何进入复核）与场地识图测试 2 项；完整自测 77 项通过。
+- 真实回归：`run_real_dwg_regression.sh` 支持 `kind=electrical|structural|site`；本机知识库结构 DWG（会展梁板）与总平面 DWG（济南国贸总平面图）均通过（2/2 pass）。
+- 边界不变：本技能只做识图和证据候选，不输出混凝土方量、钢筋吨位、土方量、道路面积、管线长度汇总、材料量或造价。
+
+## 0.22.0 — 2026-10-05
+
+电气识图继续增强：新增消防、弱点/弱电与智能化识图能力（建筑电气之后第二步）。
+
+- 新增 `domain_rules`：`fire_protection`（消防）、`weak_current`（弱点/弱电）、`intelligent_building`（智能化）三领域系统映射；`domain_of` / `domain_candidates` 把系统、设备、回路、路由、标注候选按领域分组，JSON/Summary/Markdown/CSV 输出 `fire_protection`、`weak_current`、`intelligent_building` 字段和 `domain`/`domain_label`。
+- 图纸类型扩充：消防水/喷淋平面、消防联动平面、防排烟平面、气体灭火平面、智能化平面、综合布线平面（PDS）、CCTV 平面、广播/会议（PA/AV）平面。
+- 专业系统扩充：消防水、喷淋、气体灭火、防排烟、疏散、消防联动、消防泵、综合布线、门禁、广播/会议、BAS、能耗计量、智能照明、IBMS、停车等。
+- 路由规则新增消防火警环路（`fire_loop`，system=fire_alarm）和弱电信号总线（`signal_bus`，system=weak_current）。
+- 设备规则新增防火卷帘/防火门、消防泵、消防控制主机、排烟口/阀/风机、网络设备、摄像机、门禁设备、广播音箱、DDC/BAS 传感器、能耗计量表、智能照明面板等。
+- 回路前缀扩充 FAS/FA/FBF/FB/FBN/XFB/XS/XQ/CCTV/PDS/ACS/PA/AV/IBMS/BMS；规格识别扩充 UTP/STP/CAT5E/CAT6/GYXTW/GYTA/FIBER 等弱电/光缆线型。
+- `cad_contract.py` 注册 `fire_protection`、`weak_current`、`intelligent_building` 章节（device），统一候选契约保持 `final_quantity=false`。
+- 新增 `test_fire_weak_current_intelligent_domains` 回归；电气识图测试 4 项通过。
+- 新增本机真实 DWG 回归入口 `scripts/run_real_dwg_regression.sh` / `.py`：读取 `--manifest` 真图清单，串接 `cad_scan` + `cad_electrical_geometry`，按领域候选数核对并输出脱敏报告；真图清单在技能包之外，发布内容不含真实图纸路径。
+- 真实回归验证：酒店消防报警、会展弱电、I-1号楼智能化三张本机知识库 DWG 均通过，消防/弱点/智能化领域候选均>0（3/3 pass）。
+- 下一步按发布流程执行 skill-publisher，发布前运行脱敏守卫。
+
+## 0.21.0 — 2026-10-05
+
+新增电气专业识图中间数据模块（第一步：建筑电气）。
+
+- 新增 `scripts/cad_electrical_geometry.sh` 与 `packs/electrical-geometry/`（SKILL.md + rules.json）：识别变配电、照明、动力、应急照明、火灾报警、安防、弱电智能化、防雷接地图纸类型与系统。
+- 输出桥架/母线/导管/电缆/导线路由候选、配电箱/柜、灯具、开关插座、探测器、报警设备、防雷接地设备候选，以及回路编号（WL/WP/WE/EM/L/M）与回路规格标注候选。
+- 回路只做候选与复核，不展开芯数/线长；不输出电气材料量、负荷、照度、母排、造价或结算量。
+- `cad_contract.py` 注册 `circuits/specs/lightning` 章节，统一候选契约保持 `final_quantity=false`。
+- 新增 `scripts/tests/test_cad_electrical_geometry.py`（3 项）；完整自测通过。
+- 仍未接入：真实电气 DWG 回归图；消防/智能化按约定排在电气之后，不在本版本。
+
+## 0.20.1 — 2026-10-05
+
+修复 SkillHub 轻量包自动下载与概况增强。
+
+- `scripts/install_vendor.sh` 兼容 `cad-file-reader-full-<ver>.zip` 与 `cad-file-reader-<ver>-full.zip` 两种 GitHub Release 命名，安装后可自动下载对应版本 vendor。
+- Manifest / SKILL/README 概况补充 P0–P5 优化简介：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
+- 完整自测 69 项通过。
+
+## 0.20.0 — 2026-10-05
+
+发布前重构整理（无功能/契约变更）。
+
+- 新增 `scripts/cad_common.py`，抽取 `compact`、`load_rules`、`pattern_hit`、`match_rule`、`segment_length`、`peak_rss_mb`、`file_name` 等跨脚本公共函数。
+- `cad_semantics.sh`、`cad_compare.sh` 改用统一入口 `scripts/run_cad.sh`，移除硬编码 Python 路径。
+- 完整自测 69 项通过。
+
 # 更新记录
+
+## 0.19.0 — 2026-10-04
+
+识图候选可信度、语义/拓扑/对比与交接稳定性增强。
+
+- 新增 `cad-file-reader/v0` 统一候选契约：`confirmed_evidence`、`inferred_candidate` 和 `review_required` 三层置信度；标准复核原因词表、中文 `review_notes`、确定性候选 ID 和交接校验。
+- 新增大图证据缓存、`--roi` / `--sheet` 局部解析、缓存读写观测和 `cad_cache_admin` 安全治理。
+- 新增 `cad_semantics.py` / `cad_semantics.sh`：图层语义、块语义和块实例关联候选；支持上限与关联半径控制。
+- `cad_mep_geometry` 新增 `mep_relations`：设备—管段、立管—管段、端点连接和系统冲突关联；缺图层/系统、冲突或距离异常进入复核。
+- 新增 `cad_compare.py` / `cad_compare.sh`：对比图层、块、文字和几何的增删与移动；同图对比输出 0 变化。
+- 新增图层/块语义与图纸对比回归测试；完整测试 69 项通过。
+- 本地解析边界不变：所有候选固定 `final_quantity=false`，不输出最终工程量、材料量、造价或结算量。
 
 ## 0.18.0 — 2026-09-20
 
