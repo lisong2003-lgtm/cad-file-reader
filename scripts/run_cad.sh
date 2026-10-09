@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# 通用入口：run_cad.sh <cad_scan|read_cad> [参数...]
+# 通用入口：run_cad.sh <cad_scan|read_cad|cad_interpret|...> [参数...]
+# 输出选项（通用，所有脚本生效）：
+#   --concise        精简输出（省 Token）：候选只保留主干字段
+#   --full           完整输出（含 evidence/bbox 等全部字段，默认）
+#   --with-evidence  同 --full
+# 默认输出完整；环境变量 CAD_CONCISE=1 可全局改为精简默认。
 set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON_BIN=""
@@ -19,7 +24,22 @@ fi
 # 内存闸（2026-08-31）：macOS 无 RLIMIT_AS/ulimit -v，硬保护在 mem_guard.py 看门狗。
 : "${CAD_MEM_LIMIT_MB:=4096}"
 export CAD_MEM_LIMIT_MB
+# 输出深度：默认完整；--concise 显式精简；--full/--with-evidence 显式完整。
+: "${CAD_CONCISE:=0}"
+forward_args=()
+for _arg in "$@"; do
+  case "${_arg}" in
+    --concise) export CAD_CONCISE=1 ;;
+    --full|--with-evidence) export CAD_CONCISE=0 ;;
+    *) forward_args+=("${_arg}") ;;
+  esac
+done
+export CAD_CONCISE
 export PYTHONPATH="${SKILL_DIR}/vendor${PYTHONPATH:+:${PYTHONPATH}}"
-SCRIPT_NAME="${1:?用法: run_cad.sh <cad_scan|read_cad> [参数...]}"
-shift
-exec "${PYTHON_BIN}" "${SKILL_DIR}/scripts/${SCRIPT_NAME}.py" "$@"
+if (( ${#forward_args[@]} == 0 )); then
+  echo "用法: run_cad.sh <cad_scan|read_cad|cad_interpret|...> [参数...] [--concise|--full|--with-evidence]" >&2
+  exit 1
+fi
+SCRIPT_NAME="${forward_args[0]}"
+unset 'forward_args[0]'
+exec "${PYTHON_BIN}" "${SKILL_DIR}/scripts/${SCRIPT_NAME}.py" "${forward_args[@]}"

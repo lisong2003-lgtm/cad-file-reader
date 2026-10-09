@@ -70,6 +70,47 @@ class CadCompareTest(unittest.TestCase):
         self.assertEqual(validate_contract_payload(result), [])
         self.assertEqual(result["summary"]["changes_output"], 0)
 
+    def test_geometry_only_change_reports_no_text_change(self):
+        base = {
+            "layers": ["A"],
+            "meta": {"block_refs": {"B": 1}},
+            "text_records": [{"kind": "TEXT", "text": "same", "x": 1, "y": 2, "layer": "A", "file": 0}],
+            "geometry_segments": [[[0, 0, 100, 0]]],
+            "geometry_layers": [["A"]],
+        }
+        target = {
+            "layers": ["A"],
+            "meta": {"block_refs": {"B": 1}},
+            "text_records": [{"kind": "TEXT", "text": "same", "x": 1, "y": 2, "layer": "A", "file": 0}],
+            "geometry_segments": [[[0, 0, 100, 0], [500, 0, 600, 0]]],
+            "geometry_layers": [["A", "A"]],
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            a = Path(temp) / "base.json"; b = Path(temp) / "target.json"
+            a.write_text(json.dumps(base, ensure_ascii=False), encoding="utf-8")
+            b.write_text(json.dumps(target, ensure_ascii=False), encoding="utf-8")
+            result = compare_files(a, b, 1, 100)
+        self.assertEqual(validate_contract_payload(result), [])
+        self.assertEqual(result["summary"]["added_text"], 0)
+        self.assertEqual(result["summary"]["removed_text"], 0)
+        self.assertEqual(result["summary"]["moved_text"], 0)
+        self.assertGreater(result["summary"]["added_geometry"], 0)
+        changes = {row["change_type"] for row in result["drawing_changes"]}
+        self.assertNotIn("added_text", changes)
+        self.assertIn("added_geometry", changes)
+
+    def test_empty_input_returns_empty_contract(self):
+        blank = {"files": [], "layers": [], "text_records": [], "geometry_segments": [], "geometry_layers": [], "meta": {}}
+        with tempfile.TemporaryDirectory() as temp:
+            a = Path(temp) / "empty_a.json"; b = Path(temp) / "empty_b.json"
+            a.write_text(json.dumps(blank, ensure_ascii=False), encoding="utf-8")
+            b.write_text(json.dumps(blank, ensure_ascii=False), encoding="utf-8")
+            result = compare_files(a, b, 1, 100)
+        self.assertEqual(validate_contract_payload(result), [])
+        self.assertEqual(result["summary"]["changes_output"], 0)
+        self.assertEqual(result["drawing_changes"], [])
+        self.assertEqual(result["change_summary"], {})
+
 
 if __name__ == "__main__":
     unittest.main()

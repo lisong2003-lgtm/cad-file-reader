@@ -1,9 +1,60 @@
+## 0.26.4 — 2026-10-09（本地优化，未发布）
+
+输出深度用户可选 + Word/Excel 导出。
+
+- 精简模式改为显式选项：默认完整输出；`--concise` 精简候选主干（省 Token），`--full`/`--with-evidence` 恢复完整；`CAD_CONCISE=1` 可全局设为精简默认。
+- `run_cad.sh` 支持 `--concise` 并在转发前剥离开关；`cad_scan.py` 同步支持 `--concise/--full/--with-evidence`。
+- 新增 `scripts/cad_export.py`：把雷达扫描结构化结果导出为 Excel(.xlsx) / Word(.docx)，多 Sheet/分节（构件候选、规格表、钢筋汇总、建筑做法）；`cad_scan --format xlsx|docx` 可用（需 `--out`）。
+- SKILL.md 增加精简输出与 xlsx/docx 用法示例。
+
+## 0.26.3 — 2026-10-09（本地优化，未发布）
+
+精简输出契约，降低下游 Token 开销。
+
+- 默认精简契约：`CAD_CONCISE=1` 时 `contract.candidates`/`review_candidates` 只保留候选主干字段，`evidence` 置空、不展开长数组；`--full`/`--with-evidence` 可恢复完整证据。
+- `scripts/run_cad.sh` 默认设置精简模式，并支持 `--full`/`--with-evidence` 开关。
+- `cad_contract.py` 支持 `concise=` 参数；校验对精简候选向后兼容。
+- SKILL.md 补充精简输出用法说明。
+
+## 0.26.2 — 2026-10-09（本地优化，未发布）
+
+继续补充专业识图规则包并强化契约。
+
+- 新增 `packs/doors-windows-stairs-insulation-waterproof/`：门窗/楼梯/保温/防水识图候选（门窗编号、楼梯梯段/休息平台/栏杆扶手、保温层/防水层、标高/编号证据），输出统一候选契约。
+- 新增 `packs/fire-prevention-accessibility-green-energy/`：防火/无障碍/绿建节能识图候选（防火分区、疏散路线、防火门/卷帘、无障碍坡道/通道/卫生间、屋顶绿化/雨水花园/光伏/节能做法，编号/标高证据）。
+- 新增入口 `scripts/cad_doors_windows_stairs_insulation_waterproof.sh`、`scripts/cad_fire_prevention_accessibility_green_energy.sh`（及 .py 配套入口）。
+- `rules/legends.json` 扩充 2 组图例词库：门窗楼梯保温防水、防火无障碍绿建节能。
+- 契约增强：候选输出 `confidence_score`（0–1 主置信度，与 confidence 同值），schema/校验同步支持。
+
+## 0.26.1 — 2026-10-09（本地优化，未发布）
+
+按专业方向建议新增两个规则包并扩展图例词库。
+
+- 新增 `packs/bridge-tunnel-road-traffic/`：桥梁/隧道/道路线形/交通设施识图候选（桥墩、桥台、盖梁、支座、隧道洞口、衬砌、路线中线/平竖曲线、交通标志标线、护栏、信号灯），输出图纸类型/系统/构件/桩号坐标/图层证据。
+- 新增 `packs/pile-foundation-slope/`：桩基/基坑/边坡/地基处理识图候选（桩型、承台、支护桩、地下连续墙、内支撑、锚索、锚杆、挡墙、抗滑桩、护坡、搅拌桩/CFG/强夯、监测点），输出图纸类型/系统/构件/桩号标高/图层证据。
+- 新增入口 `scripts/cad_bridge_tunnel_road_traffic.sh`、`scripts/cad_pile_foundation_slope.sh`，注册到统一候选契约（final_quantity=false）。
+- `rules/legends.json` 扩充 2 组图例词库：桥梁隧道道路交通 15 词、桩基基坑边坡 24 词。
+- 验证：两个新规则包自测 2 项通过。
+
+## 0.26.0 — 2026-10-08
+
+新增 PDF 图纸识图能力与发布合规修复（按本机 skill-publisher / skill-architect 审计落地）。
+
+- 新增本机 PDF 识图入口 `scripts/cad_pdf_ocr.sh` / `.py`：先用 pdf-inspector 做类型分流（`text/scanned/mixed` → `pdf_vector/pdf_raster/pdf_hybrid`），矢量页取原生文字与变换矩阵，扫描/混合页用 `pdftoppm` 渲染后调本机 image-ocr 出线性文字候选。
+- 输出 `page_index` / `page_bbox`（PDF 点）、`source_bbox_px`、扫描/混合页缺图层口径（`missing_layer/missing_unit/missing_scale`），全部候选固定 `final_quantity=false`、进 `review_candidates`。
+- 图签栏元数据锚点：版式优先（右下角区域）+ 关键词回退，`pdf_meta.title_block` 只做跨格式元数据锚点，需人工核对。
+- 矢量 PDF 原生文字坐标复核入口 `scripts/cad_pdf_vec.sh` / `.py`：`x/y/width/height/font/font_size/page`，单位 PDF 点，不参与测量。
+- 两级缓存（文件级 PDF 元数据 + 页面级 OCR 行结果）与页面级 `--workers` 并行（默认≤3），`--classify-only`、`--force`、`--cache-dir`。
+- 契约增强：`source_format` 字段标识 `pdf_vector/pdf_raster/pdf_hybrid`；`cad_contract.py` 注册 `pdf_meta` 章节；`cad_validate` 校验 PDF 契约样例。
+- 发布合规修复：移除脚本内硬编码本机绝对路径（本机绝对路径），改为环境变量 + `Path.home()` 运行时回退；文档脚本引用改为显式完整文件名，避免发布检查误报 missing_script。
+- 验证：全量自测 124 项通过；发布前脱敏扫描 70 文件命中 0 处；本机真实 DWG 回归 3/3 pass（结构/总图/电气）；缓存验证 3/3 `cache_hits=1`。
+
 ## 0.25.0 — 2026-10-05
 
 按优化建议落地 P0/P1 识图准确率与契约增强（纯规则/轻量知识表，不引入视觉模型）。
 
 - 旋转感知标注：`cad_scan` DXF 流式解码与 `read_cad` 捕获文字实体旋转角（`rotation`）；`cad_scan.analyse()` 按 0-180° 每 5° 分桶加入位置键，同位置不同旋转拆分为独立标注位置，`cad_interpret._scope_key` 同步带上旋转桶，供斜向标注正确归属与证据追溯。
-- 图例知识表：新增 `scripts/cad_legend.py/.sh` 与 `rules/legends.json`，按专业扩充到 14 组 205 个关键词（消防报警、照明、动力、弱电智能、给排水、暖通、消防水、钢结构、市政、人防、预制、装饰、幕墙、测量标注），支持 `symbols` 符号指纹表（12 组块/符号别名）优先匹配块引用；同名 INSERT 文字不再覆盖块指纹。输出 `legend_matches` 候选和 `discipline_refs`。
+- 图例知识表：新增 `scripts/cad_legend.py`、`scripts/cad_legend.sh` 与 `rules/legends.json`，按专业扩充到 14 组 205 个关键词（消防报警、照明、动力、弱电智能、给排水、暖通、消防水、钢结构、市政、人防、预制、装饰、幕墙、测量标注），支持 `symbols` 符号指纹表（12 组块/符号别名）优先匹配块引用；同名 INSERT 文字不再覆盖块指纹。输出 `legend_matches` 候选和 `discipline_refs`。
 - 契约增强：candidate 新增可选 `rotation`、`confidence_scores`（证据子项强度）、`discipline_refs`（跨专业视角），schema 与 `cad_validate` 向后兼容。
 - `cad_contract.py` 注册 `legend_matches` 章节；`test_cad_legend.py` 3 项（含符号指纹去重优先级），完整自测 95 项通过。
 - 端到端示例验证：图例词库命中 6 条候选，`cad_validate.sh` 校验通过。
@@ -29,8 +80,8 @@
 
 新增结构识图候选包与总图/场地识图候选包（按用户建议补充的两个专业识图能力）。
 
-- 新增 `packs/structural-geometry/`（SKILL.md + rules.json）与 `scripts/cad_structural_geometry.sh/.py`：识别结构平面/配筋/基础/楼梯/节点详图/柱表/结构说明等图纸类型，混凝土/钢筋/基础/楼梯/预制/加固系统，梁/板/柱/墙/基础/楼梯/洞口加强/节点加强构件，HPB300/HRB400 配筋标注（直径@间距、纵筋/箍筋/附加筋/负筋/拉筋/分布筋），KL/WKL/KZ/YBZ/GBZ/LB/WB/Q/CT/FB/JZL 结构编号，节点/轴网/标高候选；输出 `*_structural.json/md/csv` 与 contract。
-- 新增 `packs/site-geometry/`（SKILL.md + rules.json）与 `scripts/cad_site_geometry.sh/.py`：识别总平面、竖向、管线综合、道路纵横断面、挡土墙/边坡、停车、景观图纸与系统，红线/道路/人行道/路缘石/停车位/挡墙/护坡/排水沟/雨水口/检查井/管线/高程点/土方挖填/绿化铺装构件，桩号/坐标/标高/盘区编号标注候选；输出 `*_site.json/md/csv` 与 contract。
+- 新增 `packs/structural-geometry/`（SKILL.md + rules.json）与 `scripts/cad_structural_geometry.sh`、`scripts/cad_structural_geometry.py`：识别结构平面/配筋/基础/楼梯/节点详图/柱表/结构说明等图纸类型，混凝土/钢筋/基础/楼梯/预制/加固系统，梁/板/柱/墙/基础/楼梯/洞口加强/节点加强构件，HPB300/HRB400 配筋标注（直径@间距、纵筋/箍筋/附加筋/负筋/拉筋/分布筋），KL/WKL/KZ/YBZ/GBZ/LB/WB/Q/CT/FB/JZL 结构编号，节点/轴网/标高候选；输出 `*_structural.json/md/csv` 与 contract。
+- 新增 `packs/site-geometry/`（SKILL.md + rules.json）与 `scripts/cad_site_geometry.sh`、`scripts/cad_site_geometry.py`：识别总平面、竖向、管线综合、道路纵横断面、挡土墙/边坡、停车、景观图纸与系统，红线/道路/人行道/路缘石/停车位/挡墙/护坡/排水沟/雨水口/检查井/管线/高程点/土方挖填/绿化铺装构件，桩号/坐标/标高/盘区编号标注候选；输出 `*_site.json/md/csv` 与 contract。
 - `cad_contract.py` 注册 `rebars`（text）、`structural_geometry`（line）、`site_geometry`（line）章节；统一候选契约保持 `final_quantity=false`。
 - 缺几何、缺图纸类型、缺比例/单位、缺图层、配筋/标高/桩号未绑定几何进入 `review`；不默认按比例推算。
 - 新增结构识图测试 2 项（结构提取通过、缺比例/几何进入复核）与场地识图测试 2 项；完整自测 77 项通过。
@@ -61,7 +112,7 @@
 - 输出桥架/母线/导管/电缆/导线路由候选、配电箱/柜、灯具、开关插座、探测器、报警设备、防雷接地设备候选，以及回路编号（WL/WP/WE/EM/L/M）与回路规格标注候选。
 - 回路只做候选与复核，不展开芯数/线长；不输出电气材料量、负荷、照度、母排、造价或结算量。
 - `cad_contract.py` 注册 `circuits/specs/lightning` 章节，统一候选契约保持 `final_quantity=false`。
-- 新增 `scripts/tests/test_cad_electrical_geometry.py`（3 项）；完整自测通过。
+- 新增 `test_cad_electrical_geometry.py`（3 项）；完整自测通过。
 - 仍未接入：真实电气 DWG 回归图；消防/智能化按约定排在电气之后，不在本版本。
 
 ## 0.20.1 — 2026-10-05

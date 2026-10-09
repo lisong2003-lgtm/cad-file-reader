@@ -71,6 +71,41 @@ class CadLegendTest(unittest.TestCase):
             result = analyze_file(path, max_matches=100)
         self.assertEqual(validate_contract_payload(result), [])
 
+    def test_no_match_does_not_output_false_positive(self):
+        detail = {
+            "files": [{"name": "x.dwg"}],
+            "layers": ["XK-2026", "SN_8837", "哈希图层-B_45"],
+            "text_records": [{"kind": "TEXT", "text": "普通注释 无图例语义", "x": 0, "y": 0, "layer": "XK-2026", "file": 0}],
+            "meta": {"block_refs": {"B_无语义_77": 3}},
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "nomatch.json"
+            path.write_text(json.dumps(detail, ensure_ascii=False), encoding="utf-8")
+            result = analyze_file(path, max_matches=100)
+        self.assertEqual(validate_contract_payload(result), [])
+        self.assertEqual(result["legend_matches"], [])
+        self.assertEqual(result["contract"]["candidates"], [])
+        self.assertEqual(result["contract"]["review_candidates"], [])
+
+    def test_contract_confidence_tier_boundary(self):
+        # 混入低置信/无命中文本：候选置信应落 contract 的三档边界内，且无命中内容不输出
+        detail = {
+            "files": [{"name": "x.dwg"}],
+            "layers": ["消防水", "无名普通层"],
+            "text_records": [{"kind": "INSERT", "text": "消火栓", "x": 0, "y": 0, "layer": "W", "file": 0}],
+            "meta": {"block_refs": {"喷淋": 2}},
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "tier.json"
+            path.write_text(json.dumps(detail, ensure_ascii=False), encoding="utf-8")
+            result = analyze_file(path, max_matches=100)
+        self.assertEqual(validate_contract_payload(result), [])
+        self.assertTrue(result["legend_matches"])
+        for row in result["legend_matches"]:
+            self.assertGreaterEqual(row["confidence"], 0.5)
+        tiers = {row["confidence_tier"] for row in result["contract"]["candidates"]}
+        self.assertTrue(tiers <= {"confirmed_evidence", "inferred_candidate"})
+
 
 if __name__ == "__main__":
     unittest.main()

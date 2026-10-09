@@ -25,6 +25,13 @@
 | 图层/块语义、块实例关联、低内存上限控制 | `SKILL.md` | `scripts/cad_semantics.sh` |
 | 图纸变化对比、图层/块/文字/几何增删与移动 | `SKILL.md` | `scripts/cad_compare.sh` |
 | 本机真实 DWG 回归（电气/消防/弱点/智能化/结构/总图场地/给排水暖通/精装修/人防/幕墙/预制装配）、真图清单脱敏复核 | `SKILL.md` | `scripts/run_real_dwg_regression.sh` |
+| PDF 图纸识图候选（本机分流 + 本地 OCR，pdf_vector/raster/hybrid，两级缓存） | `SKILL.md` | `scripts/cad_pdf_ocr.sh` |
+| 矢量 PDF 原生文字坐标候选（x/y/width/height/font/page，PDF 点单位，不参与测量） | `scripts/cad_pdf_vec.sh` | `scripts/cad_pdf_vec.py` |
+| 桥梁/隧道/道路交通识图、桥墩/桥台/隧道洞口/路线/交通设施候选、桩号/坐标/图纸类型证据 | `packs/bridge-tunnel-road-traffic/SKILL.md` | `scripts/cad_bridge_tunnel_road_traffic.sh` |
+| 桩基/基坑/边坡识图、桩位/支护/锚索/挡墙/护坡/监测候选、桩号/标高证据 | `packs/pile-foundation-slope/SKILL.md` | `scripts/cad_pile_foundation_slope.sh` |
+| 门窗/楼梯/保温/防水识图、门/窗编号/楼梯扶手表/保温层/防水层候选、标高/编号证据 | `packs/doors-windows-stairs-insulation-waterproof/SKILL.md` | `scripts/cad_doors_windows_stairs_insulation_waterproof.sh` |
+| 防火/无障碍/绿建节能识图、防火分区/疏散路线/防火门卷帘/无障碍坡道/绿建/海绵/光伏候选、编号/标高证据 | `packs/fire-prevention-accessibility-green-energy/SKILL.md` | `scripts/cad_fire_prevention_accessibility_green_energy.sh` |
+| 发布前预检（全量自测 → 契约校验 → 脱敏扫描 → 可选真图回归） | `scripts/run_preflight.sh` | 入口脚本 |
 | 统一候选契约、置信度分层、复核原因、交接 JSON 校验 | `SKILL.md` | `scripts/cad_validate.sh` |
 
 ## 资源

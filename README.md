@@ -24,7 +24,7 @@
 
 - 结构：识别结构平面/配筋/基础/楼梯/节点等图纸类型，梁/板/柱/墙/基础/楼梯/洞口构件，HPB300/HRB400 等配筋标注，KL/KZ/YBZ 等编号，节点/轴网候选；只做识图证据，不换算混凝土方量/钢筋吨位/锚固长度。
 - 总图/场地：识别总平面、竖向设计、管线综合、道路纵横断面、挡土墙/边坡、停车、景观图纸与系统，红线/道路/停车位/挡墙/护坡/管线/高程点/土方挖填等场地构件候选，以及桩号、坐标、标高标注；只做识图证据，不输出土方量、道路面积或管线长度汇总。
-- 新增 `scripts/cad_structural_geometry.sh/.py` 与 `scripts/cad_site_geometry.sh/.py`，输出 `*_structural.json/md/csv` 和 `*_site.json/md/csv`，统一候选契约固定 `final_quantity=false`。
+- 新增 `scripts/cad_structural_geometry.sh`、`scripts/cad_structural_geometry.py` 与 `scripts/cad_site_geometry.sh`、`scripts/cad_site_geometry.py`，输出 `*_structural.json/md/csv` 和 `*_site.json/md/csv`，统一候选契约固定 `final_quantity=false`。
 - 真实回归：本轮已接入本机知识库结构 DWG 和总平面 DWG 回归，`run_real_dwg_regression.sh` 清单支持 `kind=electrical|structural|site`。）
 
 ## 0.22.0 新增概览

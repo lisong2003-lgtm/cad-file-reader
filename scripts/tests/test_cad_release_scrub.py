@@ -30,6 +30,7 @@ CLEAN = """# 能力说明
 - 统一报告 `cad-quantity-report/v0.21` 增 7 键、1 门槛，接口版本 v0.20 -> v0.21。
 - 置信度 ≥ 0.90，推断项 0.50–0.89；示例参数 --thickness-m 0.10。
 - 规则权重：direct_label 0.92、pattern_match 0.78；高强螺栓 10.9S / 8.8S。
+- 图例规则权重 confidence_base 0.88、0.84、0.86。
 """
 
 

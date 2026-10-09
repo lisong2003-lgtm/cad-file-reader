@@ -89,5 +89,29 @@ class CadContractTest(unittest.TestCase):
             self.assertEqual(validate.returncode, 0, validate.stdout + validate.stderr)
 
 
+
+    def test_missing_key_field_must_be_review_not_mainline(self):
+        # 外部拼好的 contract 把 missing_layer 的候选放进主线 candidates，应被强校验拦下
+        payload = {
+            "schema": "cad-descriptive-geometry/v7",
+            "source_file": "sample.dwg",
+            "views": [
+                {"id": "v1", "title": "一层平面图", "layer": "TITLE", "bbox": [0, 0, 10, 10], "confidence": 0.95, "status": "candidate"},
+                {"id": "v2", "title": "某构件", "layer": "", "bbox": [20, 20, 30, 30], "confidence": 0.95, "status": "candidate", "review_reasons": ["missing_layer"]},
+            ],
+        }
+        result = contractize_payload(payload)
+        # 正确路径：missing_layer 自动进 review_candidates
+        self.assertEqual(validate_contract_payload(result), [])
+        # 人为把该候选挪回主线 candidates，应报错
+        review = result["contract"]["review_candidates"]
+        target = next(r for r in review if "missing_layer" in r["review_reasons"])
+        result["contract"]["candidates"].append(target)
+        result["contract"]["review_candidates"] = [r for r in review if r is not target]
+        result["contract"]["summary"]["candidate_count"] += 1
+        result["contract"]["summary"]["review_required"] -= 1
+        errors = validate_contract_payload(result)
+        self.assertTrue(any("缺关键字段" in e and "missing_layer" in e for e in errors))
+
 if __name__ == "__main__":
     unittest.main()

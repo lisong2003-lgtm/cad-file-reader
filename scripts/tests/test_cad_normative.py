@@ -86,3 +86,20 @@ class CadNormativeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CadNormativeEdgeTest(unittest.TestCase):
+    def test_current_edition_and_version_risk(self):
+        p = payload_for(["本设计执行 GB55011/GB50011-2010(2016年版) 与 GB50068-2018。"])
+        rows = {r["ref"]: r for r in p["refs"]}
+        row = rows.get("GB50011-2010(2016年版)")
+        self.assertIsNotNone(row)
+        # 已索引且现行概率不为空；缺全文时保持风险提示
+        self.assertIn("status", row)
+        self.assertIn("rule_status", row)
+        self.assertNotEqual(row["rule_status"], "unknown")
+
+    def test_empty_and_garbage_text_no_crash(self):
+        p = payload_for(["", "   ", "无规范引用", "图纸说明见结构总说明。"])
+        self.assertIsInstance(p["refs"], list)
+        self.assertEqual(p["refs"], [])

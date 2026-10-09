@@ -9,11 +9,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import math
 from pathlib import Path
 from typing import Any
 
 CONTRACT_SCHEMA = "cad-file-reader/v0"
+
+
+def _concise_default() -> bool:
+    """默认精简契约（可由 CAD_CONCISE=0 关闭）。"""
+    return os.environ.get("CAD_CONCISE", "1") == "1"
 CONFIDENCE_TIERS = ("confirmed_evidence", "inferred_candidate", "review_required")
 REVIEW_REASONS = (
     "missing_scale",
@@ -273,7 +279,7 @@ def _standard_reasons(
 
 def _candidate(
     section: str, kind: str, row: dict[str, Any], source: Any, origin_schema: str,
-    seen: dict[str, int],
+    seen: dict[str, int], concise: bool = False,
 ) -> dict[str, Any]:
     evidence = _evidence(row)
     text = _text(row)
@@ -312,7 +318,7 @@ def _candidate(
         reasons = ["low_confidence_inference"]
     tier = "review_required" if reasons else ("confirmed_evidence" if confidence >= 0.90 else "inferred_candidate")
     notes = review_text or "；".join(REASON_NOTES[reason] for reason in reasons)
-    return {
+    full = {
         "id": candidate_id,
         "kind": kind,
         "value": value,
@@ -324,6 +330,7 @@ def _candidate(
         "evidence": evidence,
         "method": row.get("method") or row.get("basis") or section,
         "confidence": round(confidence, 4),
+        "confidence_score": round(confidence, 4),
         "confidence_tier": tier,
         "review_reasons": reasons,
         "review_notes": notes,
@@ -338,10 +345,41 @@ def _candidate(
         "discipline_refs": row.get("discipline_refs"),
         "confidence_scores": row.get("confidence_scores"),
     }
+    if not concise:
+        return full
+    return {
+        "id": candidate_id,
+        "kind": kind,
+        "value": value,
+        "unit": unit,
+        "layer": layer,
+        "block_name": block_name,
+        "text": text,
+        "bbox": None,
+        "evidence": [],
+        "method": row.get("method") or row.get("basis") or section,
+        "confidence": round(confidence, 4),
+        "confidence_score": round(confidence, 4),
+        "confidence_tier": tier,
+        "review_reasons": reasons,
+        "review_notes": notes,
+        "source_schema": CONTRACT_SCHEMA,
+        "source_id": source_id,
+        "final_quantity": False,
+        "origin_schema": origin_schema,
+        "section": section,
+        "source_file": source,
+        "status": row.get("status") or ("review" if reasons else "candidate"),
+        "rotation": None,
+        "discipline_refs": row.get("discipline_refs") if isinstance(row.get("discipline_refs"), list) else [],
+        "confidence_scores": row.get("confidence_scores") if isinstance(row.get("confidence_scores"), dict) else {},
+    }
 
 
-def contractize_payload(payload: dict[str, Any], source: Any = None) -> dict[str, Any]:
+def contractize_payload(payload: dict[str, Any], source: Any = None, concise: bool | None = None) -> dict[str, Any]:
     """为已有识图 payload 追加 `contract` 字段；不改写既有业务数组。"""
+    if concise is None:
+        concise = _concise_default()
     if not isinstance(payload, dict):
         raise TypeError("contractize_payload 需要 JSON 对象")
     if source is None:
@@ -362,7 +400,7 @@ def contractize_payload(payload: dict[str, Any], source: Any = None) -> dict[str
         for row in rows:
             if not isinstance(row, dict):
                 continue
-            candidates.append(_candidate(section, kind, row, source, origin_schema, seen))
+            candidates.append(_candidate(section, kind, row, source, origin_schema, seen, concise))
     main = [row for row in candidates if row["confidence_tier"] != "review_required"]
     review = [row for row in candidates if row["confidence_tier"] == "review_required"]
     summary = {
@@ -445,10 +483,21 @@ def validate_contract_payload(data: dict[str, Any]) -> list[str]:
                 errors.append(f"{prefix}.discipline_refs 必须是数组")
             if row.get("confidence_scores") is not None and not isinstance(row["confidence_scores"], dict):
                 errors.append(f"{prefix}.confidence_scores 必须是对象")
+            if row.get("confidence_score") is not None and (not _is_number(row["confidence_score"]) or not 0.0 <= float(row["confidence_score"]) <= 1.0):
+                errors.append(f"{prefix}.confidence_score 必须是 0..1 数字或 null")
             if row.get("source_schema") != CONTRACT_SCHEMA:
                 errors.append(f"{prefix}.source_schema 必须是 cad-file-reader/v0")
             if row.get("final_quantity") is not False:
                 errors.append(f"{prefix}.final_quantity 必须为 false")
+        # 缺关键字段（比例/单位/图层/块定义）的候选必须进 review_candidates，不能留在主线候选静默
+        missing_prefix = ("missing_scale", "missing_unit", "missing_layer", "missing_block_definition")
+        for index, row in enumerate(contract.get("candidates") or []):
+            reasons = row.get("review_reasons") or []
+            hit = [r for r in reasons if r in missing_prefix]
+            if hit:
+                errors.append(
+                    f"contract.candidates[{index}] 缺关键字段却留在主线候选（{', '.join(hit)}）；必须进 review_candidates"
+                )
     summary = contract.get("summary")
     if not isinstance(summary, dict):
         errors.append("contract.summary 必须是对象")

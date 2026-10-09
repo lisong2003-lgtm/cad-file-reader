@@ -1242,8 +1242,11 @@ def main():
                     help="额外保存每段几何所在的图层（DWG 需解码实体句柄，供识图定位）")
     ap.add_argument("--geom-radius", type=float, default=3000.0, help="几何候选关联取标注点附近多大范围，默认 3000")
     ap.add_argument("--cluster", type=float, default=0.0, help="按此网格尺寸(图纸单位,如 1500)合并邻近文字，还原平法集中标注")
-    ap.add_argument("-o", "--out", default=None, help="输出前缀，写 .md/.json/.csv")
-    ap.add_argument("--format", default="md", help="md|json|csv|all")
+    ap.add_argument("-o", "--out", default=None, help="输出前缀，写 .md/.json/.csv/.xlsx/.docx")
+    ap.add_argument("--format", default="md", help="md|json|csv|xlsx|docx|all")
+    ap.add_argument("--concise", action="store_true", help="精简输出（省 Token）：候选只保留主干字段")
+    ap.add_argument("--full", action="store_true", help="完整输出（含 evidence/bbox 等全部字段，默认）")
+    ap.add_argument("--with-evidence", action="store_true", help="同 --full")
     ap.add_argument("--spec-table", action="store_true",
                     help="额外出规格表：板厚/混凝土等级/保护层/抗震等级（md 追加一节，csv 另写 -spec.csv）")
     ap.add_argument("--cache-dir", default=None,
@@ -1253,6 +1256,13 @@ def main():
     ap.add_argument("--sheet", default=None,
                     help="局部读取缓存中的一个图框编号")
     args = ap.parse_args()
+
+    if args.full or args.with_evidence:
+        os.environ["CAD_CONCISE"] = "0"
+    elif args.concise:
+        os.environ["CAD_CONCISE"] = "1"
+    else:
+        os.environ.setdefault("CAD_CONCISE", os.environ.get("CAD_CONCISE", "0"))
 
     want = set(TEXT_KINDS[:1])
     if args.with_mtext:
@@ -1569,8 +1579,57 @@ def main():
                         w.writerow([row["part"], row["text"], name_of.get(row.get("file"), ""),
                                     row.get("sheet") or "", row.get("layer") or ""])
             written.append(str(base.with_suffix(".csv")))
+        if args.format in ("xlsx", "all"):
+            try:
+                from cad_export import write_xlsx
+                sections = [
+                    ("构件候选", CSV_HEAD, csv_rows(res)),
+                ]
+                if args.spec_table and res.get("spec"):
+                    sections.append(("规格表", SPEC_CSV_HEAD, spec_rows(res, fstats)))
+                if res.get("rebar_summary") and any(res["rebar_summary"].values()):
+                    rb = []
+                    for kind in ("箍筋", "纵筋"):
+                        for row in res["rebar_summary"].get(kind) or []:
+                            rb.append([kind, row["型号"], row["构件型数"], row["估算根数"], row["构件编号"]])
+                    sections.append(("钢筋汇总", REBAR_CSV_HEAD, rb))
+                if res.get("practices"):
+                    name_of = {i: f["name"] for i, f in enumerate(fstats)}
+                    pr = [[row["part"], row["text"], name_of.get(row.get("file"), ""),
+                           row.get("sheet") or "", row.get("layer") or ""] for row in res["practices"]]
+                    sections.append(("建筑做法", PRACTICE_CSV_HEAD, pr))
+                xlsx_path = write_xlsx(base.with_suffix(".xlsx"), sections)
+                written.append(str(xlsx_path))
+            except Exception as exc:
+                print(f"xlsx 导出失败（跳过）：{exc}", file=sys.stderr)
+        if args.format in ("docx", "all"):
+            try:
+                from cad_export import write_docx
+                sections = [
+                    ("构件候选", CSV_HEAD, csv_rows(res)),
+                ]
+                if args.spec_table and res.get("spec"):
+                    sections.append(("规格表", SPEC_CSV_HEAD, spec_rows(res, fstats)))
+                if res.get("rebar_summary") and any(res["rebar_summary"].values()):
+                    rb = []
+                    for kind in ("箍筋", "纵筋"):
+                        for row in res["rebar_summary"].get(kind) or []:
+                            rb.append([kind, row["型号"], row["构件型数"], row["估算根数"], row["构件编号"]])
+                    sections.append(("钢筋汇总", REBAR_CSV_HEAD, rb))
+                if res.get("practices"):
+                    name_of = {i: f["name"] for i, f in enumerate(fstats)}
+                    pr = [[row["part"], row["text"], name_of.get(row.get("file"), ""),
+                           row.get("sheet") or "", row.get("layer") or ""] for row in res["practices"]]
+                    sections.append(("建筑做法", PRACTICE_CSV_HEAD, pr))
+                docx_path = write_docx(base.with_suffix(".docx"), "CAD 图纸解析结果", sections)
+                written.append(str(docx_path))
+            except Exception as exc:
+                print(f"docx 导出失败（跳过）：{exc}", file=sys.stderr)
         print("已写出 " + "、".join(written), file=sys.stderr)
     else:
+        if args.format in ("xlsx", "docx"):
+            print("导出 xlsx/docx 需要 --out 参数（--format %s --out 输出前缀）" % args.format, file=sys.stderr)
+            return 2
         if args.format == "json":
             print(json.dumps(jsonable(res), ensure_ascii=False, indent=1))
         elif args.format == "csv":

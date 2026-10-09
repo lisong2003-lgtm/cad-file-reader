@@ -19,6 +19,18 @@ import time
 from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cad_contract import validate_contract_payload  # noqa: E402
+
+
+
+def _cache_hits_from_json(path: Path) -> int | None:
+    """读取 cad_scan 的 JSON 报告里的 cache.hits；无法解析返回 None。"""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return int(data.get("cache", {}).get("hits", 0) or 0)
+    except Exception:
+        return None
 
 
 def run(cmd, **kw):
@@ -31,6 +43,7 @@ def main() -> int:
     ap.add_argument("--scan-dir", help="复用已有 cad_scan 详情 JSON 的目录（含 <id>_detail.json）")
     ap.add_argument("--report-json", help="脱敏回归报告输出 JSON；默认 stdout")
     ap.add_argument("--work-dir", default="", help="临时工作目录前缀（默认用 /tmp）")
+    ap.add_argument("--verify-cache", action="store_true", help="第二次运行同参 cad_scan 验证缓存命中")
     args = ap.parse_args()
 
     manifest_path = Path(args.manifest)
@@ -80,6 +93,7 @@ def main() -> int:
         expect = case.get("expect") or {summary_keys[-1]: 1}
         item = {"id": cid, "name": case.get("name", cid), "kind": kind, "status": "pending", "summary": None, "review_items": None}
         detail_path = None
+        scanned_here = False
         if scan_dir:
             cand = scan_dir / f"{cid}_detail.json"
             if cand.exists():
@@ -90,12 +104,16 @@ def main() -> int:
                 results.append(item); continue
             case_out = work_root / f"{cid}_scan"
             detail_path = work_root / f"{cid}_detail.json"
+            cache_dir_arg = [str(work_root / "_cad_cache")] if args.verify_cache else []
             t0 = time.time()
-            r = run([str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
-                     "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
-                     "--detail-json", str(detail_path), "--format", "json", "-o", str(case_out)],
-                    capture_output=True)
+            scan_cmd = [str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
+                        "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
+                        "--detail-json", str(detail_path), "--format", "json", "-o", str(case_out)]
+            if cache_dir_arg:
+                scan_cmd += ["--cache-dir", cache_dir_arg[0]]
+            r = run(scan_cmd, capture_output=True)
             item["scan_seconds"] = round(time.time() - t0, 2)
+            scanned_here = True
             if r.returncode != 0 or not detail_path.exists():
                 item["status"] = "error"; item["reason"] = "cad_scan失败"; item["stderr"] = r.stderr[-500:]
                 results.append(item); failed += 1; continue
@@ -128,10 +146,35 @@ def main() -> int:
         summary = payload.get("summary") or {}
         item["summary"] = {k: summary.get(k) for k in summary_keys}
         item["review_items"] = summary.get("review_items")
+        contract_errors = validate_contract_payload(payload)
+        item["contract_valid"] = not contract_errors
         missing = {k: summary.get(k, 0) for k, v in (expect or {}).items() if int(summary.get(k, 0)) < int(v)}
+        if contract_errors:
+            item["status"] = "fail"; item["reason"] = f"契约校验失败:{contract_errors[:3]}"
+            failed += 1
+            results.append(item); continue
         if missing:
             item["status"] = "fail"; item["reason"] = f"领域候选不足:{missing}"
             failed += 1
+        elif args.verify_cache and scanned_here:
+            # 已在本轮跑过 cad_scan 才验证缓存命中（复用详情时跳过）
+            verify_out = work_root / f"{cid}_scan_verify"
+            verify_detail = work_root / f"{cid}_verify_detail.json"
+            v_cmd = [str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
+                     "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
+                     "--detail-json", str(verify_detail), "--format", "json", "-o", str(verify_out),
+                     "--cache-dir", str(work_root / "_cad_cache")]
+            t0 = time.time()
+            rv = run(v_cmd, capture_output=True)
+            item["cache_verify_seconds"] = round(time.time() - t0, 2)
+            hits = _cache_hits_from_json(verify_out.with_suffix(".json"))
+            item["cache_hits"] = hits
+            if rv.returncode != 0 or not hits:
+                item["status"] = "fail"; item["reason"] = "第二次扫描缓存未命中"
+                item["stderr"] = rv.stderr[-300:]
+                failed += 1
+            else:
+                item["status"] = "pass"
         else:
             item["status"] = "pass"
         results.append(item)

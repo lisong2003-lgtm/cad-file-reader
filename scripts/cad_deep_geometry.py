@@ -61,6 +61,42 @@ PACKS = {
         "boundary": "只输出预制装配深化识图候选、证据和复核项；不输出预制构件数量、体积、材料量、造价或结算量。",
         "review_type": "precast_layer",
     },
+    "bridge_tunnel_road_traffic": {
+        "rules": "packs/bridge-tunnel-road-traffic/rules.json",
+        "schema": "cad-bridge-tunnel-road-traffic/v1",
+        "geo_key": "bridge_tunnel_road_traffic",
+        "label": "桥梁/隧道/道路交通识图",
+        "suffix": "bridge_tunnel_road_traffic",
+        "boundary": "只输出桥梁/隧道/道路交通识图候选、证据和复核项；不输出桥隧长度、道路面积、材料量、造价或结算量。",
+        "review_type": "bridge_road_layer",
+    },
+    "pile_foundation_slope": {
+        "rules": "packs/pile-foundation-slope/rules.json",
+        "schema": "cad-pile-foundation-slope/v1",
+        "geo_key": "pile_foundation_slope_geometry",
+        "label": "桩基/基坑/边坡识图",
+        "suffix": "pile_foundation_slope",
+        "boundary": "只输出桩基/基坑/边坡识图候选、证据和复核项；不输出桩长、方量、支护结构量、造价或结算量。",
+        "review_type": "pile_slope_layer",
+    },
+    "doors_windows_stairs_insulation_waterproof": {
+        "rules": "packs/doors-windows-stairs-insulation-waterproof/rules.json",
+        "schema": "cad-doors-windows-stairs-insulation-waterproof/v1",
+        "geo_key": "doors_windows_stairs_insulation_waterproof",
+        "label": "门窗/楼梯/保温/防水识图",
+        "suffix": "doors_windows_stairs_insulation_waterproof",
+        "boundary": "只输出门窗/楼梯/保温/防水识图候选、证据和复核项；不输出门窗数量、面积、保温/防水展开量、材料量、造价或结算量。",
+        "review_type": "dws_insul_water_layer",
+    },
+    "fire_prevention_accessibility_green_energy": {
+        "rules": "packs/fire-prevention-accessibility-green-energy/rules.json",
+        "schema": "cad-fire-prevention-accessibility-green-energy/v1",
+        "geo_key": "fire_prevention_accessibility_green_energy_geometry",
+        "label": "防火/无障碍/绿建节能识图",
+        "suffix": "fire_prevention_accessibility_green_energy",
+        "boundary": "只输出防火/无障碍/绿建节能识图候选、证据和复核项；不输出防火分区面积、疏散距离结论、绿建评分、能耗量、材料量、造价或结算量。",
+        "review_type": "fire_green_layer",
+    },
 }
 
 from cad_contract import contractize_payload
