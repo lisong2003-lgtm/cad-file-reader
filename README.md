@@ -1,5 +1,8 @@
 # CAD 图纸识图与证据提取（cad-file-reader）
 
+> 📦 **SkillHub 安装**：`skillhub install cad-file-reader`　|　仓库：[lisong2003-lgtm/cad-file-reader](https://github.com/lisong2003-lgtm/cad-file-reader)
+
+
 一个给 AI 编码助手使用的本地 CAD **识图与证据提取** Skill。直接解析 DWG/DXF/DWT，不需要安装 AutoCAD。适合大图快速扫描、图层/文字/块/图框索引、建筑/结构/MEP/钢结构/市政识图候选、规范图集引用定位和回图复核。
 
 > 定位：识图与证据工具，不替代设计审查、清单计价、翻样下料、结算或规范条文解释。
