@@ -235,8 +235,97 @@ _SAFE_FUNCS = {
 }
 
 
+def _eval_rule_node(node: ast.AST, ns: dict[str, Any]) -> Any:
+    """纯 AST 解释器：只解释白名单内节点，与 Python 语义保持一致，不执行任意代码。"""
+    if isinstance(node, ast.Expression):
+        return _eval_rule_node(node.body, ns)
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id in _SAFE_FUNCS:
+            return _SAFE_FUNCS[node.id]
+        if node.id in ns:
+            return ns[node.id]
+        raise ValueError(f"公式使用了未知变量：{node.id}")
+    if isinstance(node, ast.BinOp):
+        left = _eval_rule_node(node.left, ns)
+        right = _eval_rule_node(node.right, ns)
+        if isinstance(node.op, ast.Add):
+            return left + right
+        if isinstance(node.op, ast.Sub):
+            return left - right
+        if isinstance(node.op, ast.Mult):
+            return left * right
+        if isinstance(node.op, ast.Div):
+            return left / right
+        if isinstance(node.op, ast.FloorDiv):
+            return left // right
+        if isinstance(node.op, ast.Pow):
+            return left ** right
+        if isinstance(node.op, ast.Mod):
+            return left % right
+        raise ValueError("不支持的二元运算符")
+    if isinstance(node, ast.UnaryOp):
+        operand = _eval_rule_node(node.operand, ns)
+        if isinstance(node.op, ast.USub):
+            return -operand
+        if isinstance(node.op, ast.UAdd):
+            return +operand
+        raise ValueError("不支持的一元运算符")
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name) or node.func.id not in _SAFE_FUNCS:
+            raise ValueError("公式不允许调用该函数")
+        if node.keywords:
+            raise ValueError("公式不允许关键字参数")
+        args = [_eval_rule_node(a, ns) for a in node.args]
+        return _SAFE_FUNCS[node.func.id](*args)
+    if isinstance(node, ast.Compare):
+        left = _eval_rule_node(node.left, ns)
+        for op, comparator in zip(node.ops, node.comparators):
+            right = _eval_rule_node(comparator, ns)
+            if isinstance(op, ast.Eq):
+                ok = left == right
+            elif isinstance(op, ast.NotEq):
+                ok = left != right
+            elif isinstance(op, ast.Lt):
+                ok = left < right
+            elif isinstance(op, ast.LtE):
+                ok = left <= right
+            elif isinstance(op, ast.Gt):
+                ok = left > right
+            elif isinstance(op, ast.GtE):
+                ok = left >= right
+            else:
+                raise ValueError("不支持的比较运算符")
+            if not ok:
+                return False
+            left = right
+        return True
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            last = True
+            for value in node.values:
+                last = _eval_rule_node(value, ns)
+                if not last:
+                    return last
+            return last
+        if isinstance(node.op, ast.Or):
+            last = False
+            for value in node.values:
+                last = _eval_rule_node(value, ns)
+                if last:
+                    return last
+            return last
+        raise ValueError("不支持的逻辑运算符")
+    if isinstance(node, ast.IfExp):
+        if _eval_rule_node(node.test, ns):
+            return _eval_rule_node(node.body, ns)
+        return _eval_rule_node(node.orelse, ns)
+    raise ValueError(f"不支持的节点：{type(node).__name__}")
+
+
 def safe_eval_expression(expr: str, namespace: dict[str, Any]) -> Any:
-    """只允许算术/比较表达式的安全求值，不执行任意代码。"""
+    """只允许算术/比较表达式的安全求值，不执行任意代码（纯 AST 解释器）。"""
     tree = ast.parse(expr, mode="eval")
     allowed = (ast.Expression, ast.BinOp, ast.UnaryOp, ast.Constant, ast.Name,
                ast.Call, ast.Load, ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv,
@@ -249,7 +338,7 @@ def safe_eval_expression(expr: str, namespace: dict[str, Any]) -> Any:
             raise ValueError(f"公式使用了未知变量：{node.id}")
     ns = dict(namespace)
     ns.update(_SAFE_FUNCS)
-    return eval(compile(tree, "<rule>", "eval"), {"__builtins__": {}}, ns)
+    return _eval_rule_node(tree, ns)
 
 
 def apply_rule(rule: dict[str, Any], member: dict[str, Any], profile: dict[str, list[str]],

@@ -1,5 +1,9 @@
 # 更新记录
 # 更新记录
+## 0.31.2 — 2026-10-19（安全优化：消除动态代码执行信号）
+
+- `scripts/cad_interpret.py` 的 `safe_eval_expression` 由 `eval(compile(...))` 改为纯 AST 解释器 `_eval_rule_node`：保留原有白名单校验（节点类型 + 变量名），行为与原实现等价（算术/比较/布尔/三元/仅白名单函数调用），不再触发 ClawHub 静态扫描 `suspicious.dynamic_code_execution`。
+- 新增 `SafeEvalExpressionTest` 4 项：等价性 + 拒绝任意代码（`__import__`/属性/下标/推导式/未知变量）。全量自测 181 → 185。
 ## 0.31.1 — 2026-10-19（融合线上 SkillHub 0.28.22 平台可用性 + 本机 0.31.0 五件套联动）
 
 - 以线上 SkillHub 0.28.22 为基础合并：`setup.sh / demo.sh / install_vendor.sh / ensure_runtime.sh / run_cad.sh` 统一 `bash 前缀调用` 并在启动时自动补回下载包可执行位（`chmod +x scripts/*.sh`），修复 SkillHub zip 解压后 `Permission denied`。

@@ -86,3 +86,40 @@ class BeamInstancesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SafeEvalExpressionTest(unittest.TestCase):
+    """纯 AST 解释器：与原 eval 语义一致，且拒绝任意代码执行。"""
+
+    def test_arithmetic_and_functions(self):
+        self.assertEqual(it.safe_eval_expression("section_h_mm * 1.1 + max(2, 3) - min(1, 4)", {"section_h_mm": 300}), 332.0)
+        self.assertEqual(it.safe_eval_expression("round(sqrt(900), 1)", {}), 30.0)
+        self.assertEqual(it.safe_eval_expression("100 // 3 + 100 % 30", {}), 43)
+        self.assertEqual(it.safe_eval_expression("-a + +b", {"a": 5, "b": 7}), 2)
+
+    def test_compare_bool_ifexp(self):
+        self.assertTrue(it.safe_eval_expression("section_h_mm >= 400 and section_h_mm < 600", {"section_h_mm": 450}))
+        self.assertTrue(it.safe_eval_expression("1 < a <= 5", {"a": 3}))
+        self.assertEqual(it.safe_eval_expression("a + 1 if a > 0 else -a", {"a": -5}), 5)
+        self.assertEqual(it.safe_eval_expression("a or b", {"a": 0, "b": 7}), 7)
+
+    def test_rejects_arbitrary_code(self):
+        hostile = [
+            "__import__('os').system('echo hi')",
+            "().__class__.__base__.__subclasses__()",
+            "open('/etc/passwd').read()",
+            "[x for x in range(3)]",
+            "sys.exc_info()",
+            "namespace.get('_SAFE_FUNCS')",
+            "a.b",
+            "a[0]",
+            "lambda: 1",
+        ]
+        for expr in hostile:
+            with self.subTest(expr=expr):
+                with self.assertRaises(ValueError):
+                    it.safe_eval_expression(expr, {"sys": sys, "namespace": {}})
+
+    def test_rejects_unknown_name(self):
+        with self.assertRaises(ValueError):
+            it.safe_eval_expression("unknown + 1", {})
