@@ -2,15 +2,22 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.26.5
+version: 0.31.1
 author: lis
 license: CC-BY-NC-SA-4.0
-description: 本地读取 AutoCAD DWG/DXF/DWT，提取图层、文字、块、图框、几何、建筑/结构/总图场地/安装/电气（含消防/弱点/智能化）/钢结构/市政/给排水暖通/精装修室内/幕墙/人防/预制装配识图候选、系统拓扑、长度/面积/体积测量候选及规范图集元数据，并保留证据坐标和复核原因。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、扣减、材料量、造价或结算量；算量交给专项技能。内置 P0–P5 优化：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
+description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机分流+本地 OCR。提取图层、文字、块、图框、几何、建筑/结构/总图场地/安装/电气/钢结构/市政/给排水暖通/精装修/幕墙/人防/预制装配/园林景观（苗木图例、乔灌地被候选、铺装闭合环、设计院校准、DWG块名净化与自动转DXF复扫）识图候选、系统拓扑、长度/面积/体积测量候选及规范图集元数据，均保留证据坐标与复核原因。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、材料量、造价或结算量；算量交给专项技能。内置 P0–P5 优化：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
 ---
 
 # CAD 图纸识图与证据提取（cad-file-reader）
 
 本技能只做**识图、证据提取、候选解释和测量候选**，可输出长度、面积、体积的识图候选值、计算式和复核边界；不把候选值冒充最终工程量、清单量、材料量、造价或结算量。结构混凝土/钢筋算量已迁到 `tujian-suanliang`（本机目录 `shangwu-suanliang`），装饰、安装、钢结构、市政算量分别交给对应专项 skill。
+
+## 安装与依赖
+
+- 完整包解压即用；SkillHub 轻量包一条命令：`bash scripts/setup.sh`（幂等，先自动补回下载包可执行位，再自动补齐依赖）。
+- **运行时自动自举**：任意 `run_cad.sh` 入口启动时先调 `scripts/ensure_runtime.sh`，检测到 vendor 缺失自动补齐（默认公共 PyPI 零配置安装 ezdwg/ezdxf/fonttools/pyparsing/numpy；设置 `CAD_FILE_READER_REPO=<owner>/<repo>` 时改走 GitHub Release 完整包并做 SHA-256 校验，校验失败回退公共 PyPI；设 `CAD_AUTO_SETUP=0` 关闭并明确报错）；vendor 已存在则不联网、不重复下载。
+- 依赖自检：`bash scripts/deps_check.sh --minimal`；缺 numpy 只影响梁线几何估算，其余功能降级为 review。
+- 30 秒样例：`bash scripts/demo.sh`；完整包用内置 `examples/sample_room.dxf`，SkillHub 轻量包若含 `.dxf` 则由 `scripts/generate_sample.py` 现场重建同一样例（跑识图→测量→契约校验）。
 
 ## 执行原则
 
@@ -32,6 +39,20 @@ description: 本地读取 AutoCAD DWG/DXF/DWT，提取图层、文字、块、�
 - `review_reasons[]` 使用标准英文词表，`review_notes` 保留中文说明；`source_schema` 固定为 `cad-file-reader/v0`，`final_quantity` 固定为 `false`。
 - 交付或交接前可校验：`scripts/cad_validate.sh 输出.json`。
 - **输出深度（用户可选）**：默认完整输出；追加 `--concise` 使用精简契约省 Token（候选只保留主干字段 id/类别/图层/文本/置信度/复核原因/来源文件）；`--full` 或 `--with-evidence` 恢复完整证据。环境变量 `CAD_CONCISE=1` 可全局设为精简默认。
+
+## 五件套联动契约（qto-project/v1 可选）
+
+`cad-file-reader` 是五件套（土建/安装/装饰/园林算量）联动体系的**唯一共同底座**。联动契约、schema、校验器与目录约定都放本技能；四算量 skill 之间互不强依赖，只在同项目发现其他专业输出时做交叉核对，缺失即跳过并标占位，不要求五件全装。
+
+- 主键三级来源：显式（`.qto/project.yaml`）→ 图内推断（`source=auto` + 证据）→ 文件级回退（`source=file`，置 `review_required=true`）。
+- 项目目录约定：`.qto/project.yaml`、`识别/<专业slug>/`、`算量/<专业>/`（P1）、`汇总/`（P2）。
+- 新输出为 `qto-project/v1`：在 `cad-file-reader/v0` 之上追加可选顶层字段 `qto_spec/project_key/draft_type/specialty/producer/placeholder`；旧 v0 输出零改动。
+- 校验器：`scripts/qto_validate.sh <项目目录> [--report-json 报告.json]`，旧 v0 只 warning 不 fail，`regression_pass` 与 `precision_note` 分开统计。
+- 生成/包装/占位工具：`scripts/qto_project.py init|wrap|placeholder`；`init --recognized` 支持一次多专业（例如 `--recognized tujian-suanliang anzhuang-suanliang`）。
+- 端到端示例见 `README.md#五件套联动端到端示例`（识别→P1→P2→P3→validate 一条链）。
+- P1 登记工具：`scripts/qto_p1_link.py`；P2 汇总工具：`scripts/qto_p2_summarize.py`（+`.sh`），只汇总各专业状态/候选数与缺口，不计算量。
+- P3 交叉核对工具：`scripts/qto_p3_clash.py`（+`.sh`），按部位出同专业/多专业覆盖缺口与需人工核对清单，不计算量、不仲裁量值。
+- 详细契约见 `docs/qto-linkage.md`；schema 见 `schemas/qto-project-v1.schema.json`；slug 映射见 `rules/skills-map.json`；自绘简化样例见 `examples/qto-sample/`。
 
 ## 图层/块语义与图纸对比
 

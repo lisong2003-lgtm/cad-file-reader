@@ -186,6 +186,7 @@ DECODERS = {
     "blocks": "decode_block_header_names",
     "line": "decode_line_entities",
     "lwpoly": "decode_lwpolyline_entities",
+    "placements": "decode_entity_placements",
 }
 GEOM_KINDS = ("line", "lwpoly")
 
@@ -221,6 +222,16 @@ def _worker(name: str, path: str) -> int:
                 }
         except Exception:
             pass
+    if name == "placements":
+        for row in rows:
+            if not isinstance(row, (tuple, list)) or len(row) < 3:
+                continue
+            try:
+                sys.stdout.write(json.dumps([int(row[0]), int(row[1]), int(row[2])], ensure_ascii=True) + "\n")
+            except Exception:
+                continue
+        sys.stdout.flush()
+        return 0
     for row in rows:
         layer_name = str(layer_by_handle.get(row[0], "") or "") if isinstance(row[0], int) else ""
         out = [None, None, None, layer_name]
@@ -282,7 +293,8 @@ def _rows(name: str, path: str, budget: float, notes: list):
     return rows
 
 
-def dwg_records(path: str, want: set[str], per_stage: float, max_rows: int, log, want_blocks: bool = False) -> tuple[list[dict], list[str], list[str], dict]:
+def dwg_records(path: str, want: set[str], per_stage: float, max_rows: int, log, want_blocks: bool = False,
+                 roi=None) -> tuple[list[dict], list[str], list[str], dict]:
     notes: list[str] = []
     recs: list[dict] = []
     layers: list[str] = []
@@ -313,8 +325,11 @@ def dwg_records(path: str, want: set[str], per_stage: float, max_rows: int, log,
             if name != "text":
                 txt = clean_mtext(txt)
             pt = r[2] or [None, None]
-            recs.append({"kind": kind, "text": txt, "x": pt[0] if len(pt) > 0 else None,
-                         "y": pt[1] if len(pt) > 1 else None,
+            x = pt[0] if len(pt) > 0 else None
+            y = pt[1] if len(pt) > 1 else None
+            if not _rc_in_roi(x, y, roi):
+                continue
+            recs.append({"kind": kind, "text": txt, "x": x, "y": y,
                          "layer": r[3] if len(r) > 3 else None})
         log(f"{kind} {len([x for x in recs if x['kind'] == kind])} 条")
 
@@ -322,19 +337,38 @@ def dwg_records(path: str, want: set[str], per_stage: float, max_rows: int, log,
         rows = call("insert", per_stage)
         if rows:
             meta["insert_count"] = len(rows)
-            meta["block_refs"] = dict(Counter(str(r[1]) for r in rows if r[1]).most_common(40))
+            named_ins = [r for r in rows if r and len(r) > 1 and r[1]]
+            meta["block_refs"] = dict(Counter(str(r[1]) for r in named_ins).most_common(40))
+            empty_ins = len(rows) - len(named_ins)
+            if empty_ins and empty_ins == len(rows):
+                notes.append("DWG 块引用名解码为空，块级/苗木块语义建议转 DXF 复核")
+            elif empty_ins:
+                notes.append(f"DWG 块引用名有 {empty_ins}/{len(rows)} 条解码为空，块级语义建议转 DXF 复核")
             for r in rows:
                 if len(recs) >= max_rows:
                     break
                 if r[1] and not r[1].startswith("*"):
-                    recs.append({"kind": "INSERT", "text": r[1], "x": (r[2] or [None, None])[0],
-                                 "y": (r[2] or [None, None])[1],
+                    pt = r[2] or [None, None]
+                    x = pt[0] if len(pt) > 0 else None
+                    y = pt[1] if len(pt) > 1 else None
+                    if not _rc_in_roi(x, y, roi):
+                        continue
+                    recs.append({"kind": "INSERT", "text": r[1], "x": x, "y": y,
                                  "layer": r[3] if len(r) > 3 else None})
         log(f"块引用 {meta.get('insert_count', 0)} 个")
 
     rows = call("blocks", per_stage) if want_blocks else None
     if rows:
-        meta["block_defs"] = sorted({str(r[1]) for r in rows if r[1]})[:2000]
+        raw_defs = [str(r[1]).strip() for r in rows if r[1] and str(r[1]).strip()]
+        garble_count = sum(1 for x in raw_defs if _is_garble_name(x))
+        if garble_count:
+            notes.append(f"块定义中 {garble_count} 个块名疑似编码乱码，已用 _BLK# 占位，建议转 DXF 复核")
+        seen_defs: dict[str, str] = {}
+        for x in raw_defs:
+            if x.startswith("*"):
+                continue
+            seen_defs.setdefault(_safe_block_key(seen_defs, x), x)
+        meta["block_defs"] = sorted(seen_defs)[:2000]
         log(f"块定义 {len(meta['block_defs'])} 个")
 
     return recs, layers, notes, meta
@@ -351,7 +385,7 @@ def _f(row, idx, comp):
 
 
 # ---------------------------------------------------------------- DXF（流式，不加载几何）
-def dxf_records(path: str, max_rows: int, log) -> tuple[list[dict], list[str], list[str], dict]:
+def dxf_records(path: str, max_rows: int, log, roi=None) -> tuple[list[dict], list[str], list[str], dict]:
     recs: list[dict] = []
     layers: set[str] = set()
     blocks: Counter = Counter()
@@ -371,10 +405,12 @@ def dxf_records(path: str, max_rows: int, log) -> tuple[list[dict], list[str], l
         if buf.get("_kind") in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF"):
             txt = " ".join(p for p in ([buf.get("1", "")] + mtext_parts) if p)
             if txt.strip():
-                recs.append({"kind": buf["_kind"], "text": clean_mtext(txt),
-                             "x": _num(buf.get("10")), "y": _num(buf.get("20")),
-                             "layer": layer or None,
-                             "rotation": _num(buf.get("50"))})
+                xv, yv = _num(buf.get("10")), _num(buf.get("20"))
+                if _rc_in_roi(xv, yv, roi):
+                    recs.append({"kind": buf["_kind"], "text": clean_mtext(txt),
+                                 "x": xv, "y": yv,
+                                 "layer": layer or None,
+                                 "rotation": _num(buf.get("50"))})
         if buf.get("_kind") == "INSERT" and buf.get("2"):
             blocks[buf["2"]] += 1
         buf = {}
@@ -442,6 +478,63 @@ def sane(*vals):
         if v is None or not isinstance(v, (int, float)) or not math.isfinite(v) or abs(v) > LIMIT:
             return False
     return True
+
+
+def _is_garble_name(name) -> bool:
+    """粗略判定 DWG 块名是否解码乱码（高比例不可读字符，如 @`/€/燖 等）。"""
+    if not name:
+        return False
+    upper = name.upper()
+    # 纯 ASCII 可打印常见块名（字母数字、下划线、-、空格）
+    if all((c.isascii() and c.isprintable() and (c.isalnum() or c in "_- .")) or c == " " for c in upper):
+        return False
+    import unicodedata
+    readable = 0
+    n = 0
+    for ch in name:
+        if ch.isspace():
+            continue
+        n += 1
+        try:
+            cat = unicodedata.category(ch)
+        except Exception:
+            cat = "Cn"
+        if ch.isalnum() or cat in ("Lo", "Lm", "So"):
+            readable += 1
+    if n == 0:
+        return False
+    return readable / n < 0.55
+
+
+def _safe_block_key(base: dict, raw_name: str) -> str:
+    """乱码块名换成稳定占位 _BLK#N，避免污染 JSON/语义。"""
+    if not _is_garble_name(raw_name):
+        return str(raw_name or "").strip()
+    i = len(base) + 1
+    while f"_BLK#{i}" in base:
+        i += 1
+    return f"_BLK#{i}"
+
+
+def _rc_in_roi(x, y, roi):
+    """文字/插入点是否落在 ROI 内（roi=None 表示不限）。"""
+    if roi is None:
+        return True
+    if x is None or y is None or not sane(x, y):
+        return False
+    x1, y1, x2, y2 = roi
+    return x1 <= x <= x2 and y1 <= y <= y2
+
+
+def _seg_in_roi(ax, ay, bx, by, roi):
+    """线段是否与 ROI 有交集（用 AABB 判定，roi=None 表示不限）。"""
+    if roi is None:
+        return True
+    if not sane(ax, ay, bx, by):
+        return False
+    x1, y1, x2, y2 = roi
+    return not (min(ax, bx) > x2 or max(ax, bx) < x1 or
+                min(ay, by) > y2 or max(ay, by) < y1)
 
 
 FRAME_PAT = re.compile(r"图框|frame|边框|title|tlk|gb\s*a\d", re.I)
@@ -600,37 +693,61 @@ def assign_sheets(recs, bin_size=10000.0, min_texts=60):
     return sheets
 
 
-def geometry_segments(path, budget, log, include_layers=False):
-    """解 LINE / LWPOLYLINE 成线段表；include_layers 时额外返回同名列表。"""
+def geometry_segments(path, budget, log, include_layers=False, roi=None, max_rows=None):
+    """解 LINE / LWPOLYLINE 成线段表；include_layers 时额外返回同名列表。
+
+    roi 为 AABB；max_rows 为线段数上限，超限停止并记 note（大图保护，结果自动回退）。
+    """
     notes = []
     segs = []
     seg_layers = [] if include_layers else None
     nline = 0
+    stop = False
     for name in GEOM_KINDS:
+        if stop:
+            break
         rows = _rows(name, path, budget, notes) or []
         for r in rows:
+            if stop:
+                break
             c = r[2] if len(r) > 2 else None
             if not c:
                 continue
             if name == "line":
-                if len(c) >= 4 and sane(*c[:4]):
+                if len(c) >= 4 and sane(*c[:4]) and _seg_in_roi(c[0], c[1], c[2], c[3], roi):
                     segs.append((c[0], c[1], c[2], c[3]))
                     if include_layers:
                         seg_layers.append(str(r[3] or "") if len(r) > 3 else "")
                     nline += 1
+                    if max_rows and nline >= max_rows:
+                        notes.append(f"几何线段达上限 {max_rows}，已截断（大图回退近邻几何）")
+                        stop = True
+                        break
             else:
                 pts = [(c[i], c[i + 1]) for i in range(0, len(c) - 1, 2)]
                 pts = [p for p in pts if sane(*p)]
                 for a, b in zip(pts, pts[1:]):
+                    if stop:
+                        break
+                    if not _seg_in_roi(a[0], a[1], b[0], b[1], roi):
+                        continue
                     segs.append((a[0], a[1], b[0], b[1]))
                     if include_layers:
                         seg_layers.append(str(r[3] or "") if len(r) > 3 else "")
+                    nline += 1
+                    if max_rows and nline >= max_rows:
+                        notes.append(f"几何线段达上限 {max_rows}，已截断（大图回退近邻几何）")
+                        stop = True
+                        break
         log(f"{name} {len(rows)} 个对象")
     return (segs, seg_layers, notes) if include_layers else (segs, notes)
 
 
-def dxf_geometry_segments(path, budget, log, include_layers=False):
-    """用 ezdxf 从 DXF 模型空间取 LINE/LWPOLYLINE 线段。"""
+def dxf_geometry_segments(path, budget, log, include_layers=False, roi=None, max_rows=None):
+    """用 ezdxf 从 DXF 模型空间取 LINE/LWPOLYLINE 线段。
+
+    roi 为 AABB 过滤；max_rows 为线段数上限，超限停止并记 note（大图保护）。
+    """
     notes = []
     segs = []
     seg_layers = [] if include_layers else None
@@ -639,30 +756,232 @@ def dxf_geometry_segments(path, budget, log, include_layers=False):
     except Exception as exc:
         notes.append(f"DXF 几何解码不可用：{exc}")
         return (segs, seg_layers, notes) if include_layers else (segs, notes)
+    stop = False
     try:
         with stage(budget):
             doc = ezdxf.readfile(str(path))
             for e in doc.modelspace():
+                if stop:
+                    break
                 try:
                     if e.dxftype() == "LINE":
                         s = e.dxf.start
                         t = e.dxf.end
-                        if sane(float(s.x), float(s.y), float(t.x), float(t.y)):
+                        if sane(float(s.x), float(s.y), float(t.x), float(t.y)) and                                 _seg_in_roi(float(s.x), float(s.y), float(t.x), float(t.y), roi):
                             segs.append((float(s.x), float(s.y), float(t.x), float(t.y)))
                             if include_layers:
                                 seg_layers.append(str(e.dxf.layer or ""))
+                            if max_rows and len(segs) >= max_rows:
+                                notes.append(f"几何线段达上限 {max_rows}，已截断（大图回退近邻几何）")
+                                stop = True
+                                break
                     elif e.dxftype() == "LWPOLYLINE":
                         pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
                         for a, b in zip(pts, pts[1:]):
-                            if sane(a[0], a[1], b[0], b[1]):
-                                segs.append((a[0], a[1], b[0], b[1]))
-                                if include_layers:
-                                    seg_layers.append(str(e.dxf.layer or ""))
+                            if stop:
+                                break
+                            if not sane(a[0], a[1], b[0], b[1]) or not _seg_in_roi(a[0], a[1], b[0], b[1], roi):
+                                continue
+                            segs.append((a[0], a[1], b[0], b[1]))
+                            if include_layers:
+                                seg_layers.append(str(e.dxf.layer or ""))
+                            if max_rows and len(segs) >= max_rows:
+                                notes.append(f"几何线段达上限 {max_rows}，已截断（大图回退近邻几何）")
+                                stop = True
+                                break
                 except Exception:
                     continue
     except Exception as exc:
         notes.append(f"DXF 几何解码失败：{exc}")
     return (segs, seg_layers, notes) if include_layers else (segs, notes)
+
+
+def dxf_block_geometries(path, budget, log, max_rows=None):
+    """用 ezdxf 从 DXF 块定义提取几何指纹所需的线段。
+
+    返回 {块名: {"segments": [(x1,y1,x2,y2), ...], "layers": [图层,...]}}。
+    只处理 BLOCK 定义内的 LINE/LWPOLYLINE，不展开嵌套块，避免过度膨胀；
+    max_rows 为全量段数上限，超限截断并 note（大图保护）。
+    """
+    notes = []
+    out: dict[str, dict] = {}
+    try:
+        import ezdxf
+    except Exception as exc:
+        notes.append(f"DXF 块几何解码不可用：{exc}")
+        return out, notes
+    n_seg = 0
+    stop = False
+    try:
+        with stage(budget):
+            doc = ezdxf.readfile(str(path))
+            for block in doc.blocks:
+                if stop:
+                    break
+                name = str(block.name or "").strip()
+                if not name or name.startswith("*"):
+                    continue
+                segs = []
+                layers = []
+                for e in block:
+                    if stop:
+                        break
+                    try:
+                        if e.dxftype() == "LINE":
+                            s, t = e.dxf.start, e.dxf.end
+                            if sane(float(s.x), float(s.y), float(t.x), float(t.y)):
+                                segs.append((float(s.x), float(s.y), float(t.x), float(t.y)))
+                                layers.append(str(e.dxf.layer or ""))
+                                n_seg += 1
+                                if max_rows and n_seg >= max_rows:
+                                    notes.append(f"DXF 块几何段数达上限 {max_rows}，已截断")
+                                    stop = True
+                        elif e.dxftype() == "LWPOLYLINE":
+                            pts = [(float(p[0]), float(p[1])) for p in e.get_points("xy")]
+                            for a, b in zip(pts, pts[1:]):
+                                if stop:
+                                    break
+                                if sane(a[0], a[1], b[0], b[1]):
+                                    segs.append((a[0], a[1], b[0], b[1]))
+                                    layers.append(str(e.dxf.layer or ""))
+                                    n_seg += 1
+                                    if max_rows and n_seg >= max_rows:
+                                        notes.append(f"DXF 块几何段数达上限 {max_rows}，已截断")
+                                        stop = True
+                    except Exception:
+                        continue
+                if segs:
+                    out[name] = {"segments": segs, "layers": layers}
+    except Exception as exc:
+        notes.append(f"DXF 块几何解码失败：{exc}")
+    return out, notes
+
+
+def _dwg_entity_lines_by_handle(path, budget, notes, roi=None, max_rows=None):
+    """DWG 只解 LINE/LWPOLYLINE，返回 {实体句柄: (线段列表, 图层集合)}。
+
+    复用 _rows 的子进程+预算机制；line 一条一条，lwpoly 摊成线段，
+    与 dxf_block_geometries 的 “segments” 口径一致；roi 过滤、max_rows 截断。
+    """
+    out: dict[int, tuple[list, set]] = {}
+    total_seg = 0
+    stop = False
+    try:
+        line_budget = max(4.0, budget * 0.6)
+        for name in ("line", "lwpoly"):
+            if stop:
+                break
+            rows = _rows(name, path, line_budget, notes) or []
+            for r in rows:
+                if stop:
+                    break
+                if not isinstance(r, (list, tuple)) or len(r) < 4:
+                    continue
+                try:
+                    h = int(r[0])
+                except Exception:
+                    continue
+                segs: list = []
+                layer = str(r[3] or "") if len(r) > 3 else ""
+                if name == "line":
+                    c = r[2] if len(r) > 2 and isinstance(r[2], (list, tuple)) else None
+                    if c and len(c) >= 4 and sane(float(c[0]), float(c[1]), float(c[2]), float(c[3])) and                             _seg_in_roi(float(c[0]), float(c[1]), float(c[2]), float(c[3]), roi):
+                        segs.append((float(c[0]), float(c[1]), float(c[2]), float(c[3])))
+                else:
+                    c = r[2] if len(r) > 2 and isinstance(r[2], (list, tuple)) else None
+                    pts = []
+                    if c:
+                        pts = [(float(c[i]), float(c[i + 1])) for i in range(0, len(c) - 1, 2)
+                               if sane(float(c[i]), float(c[i + 1]))]
+                    for a, b in zip(pts, pts[1:]):
+                        if stop:
+                            break
+                        if not _seg_in_roi(a[0], a[1], b[0], b[1], roi):
+                            continue
+                        segs.append((a[0], a[1], b[0], b[1]))
+                if not segs:
+                    continue
+                cur = out.setdefault(h, ([], set()))
+                cur[0].extend(segs)
+                if layer:
+                    cur[1].add(layer)
+                total_seg += len(segs)
+                if max_rows and total_seg >= max_rows:
+                    notes.append(f"DWG 块几何实体段数达上限 {max_rows}，已截断（回退近邻几何）")
+                    stop = True
+    except Exception as exc:
+        notes.append(f"DWG 块几何实体解码异常：{exc}")
+    return out
+
+
+def _build_dwg_block_geometries(block_rows, placement_rows, geom_rows, max_blocks=200):
+    """纯逻辑组装块定义内部几何（不触盘，便于单测）。
+
+    block_rows:   blocks worker 行 [handle, name]
+    placement_rows: placements worker 行 [handle, mode, owner]
+    geom_rows:    _dwg_entity_lines_by_handle 的输出
+    返回 (out, notes)；out 结构与 dxf_block_geometries 一致。
+    """
+    notes: list[str] = []
+    block_by_handle: dict[int, str] = {}
+    for r in block_rows or []:
+        try:
+            h = int(r[0])
+        except Exception:
+            continue
+        name = str(r[1] or "").strip()
+        if h and name and not name.startswith("*") and h not in block_by_handle:
+            if _is_garble_name(name):
+                notes.append(f"块名疑似乱码，已用 {_safe_block_key(block_by_handle, name)} 占位（块句柄 {h}），建议转 DXF 复核原文块名")
+            block_by_handle[h] = _safe_block_key(block_by_handle, name)
+    if not block_by_handle:
+        notes.append("DWG 未解出命名块定义；回退近邻几何")
+        return {}, notes
+
+    owner_by_handle: dict[int, int] = {}
+    for r in placement_rows or []:
+        try:
+            owner_by_handle[int(r[0])] = int(r[2])
+        except Exception:
+            continue
+    if not owner_by_handle:
+        notes.append("DWG 实体归属表未解出；回退近邻几何")
+
+    out: dict[str, dict] = {}
+    for blk_handle, name in block_by_handle.items():
+        if len(out) >= max_blocks:
+            notes.append(f"块定义超过 {max_blocks} 个，已截断")
+            break
+        segs: list = []
+        layers: set = set()
+        for eh, (esegs, elayers) in (geom_rows or {}).items():
+            if owner_by_handle.get(eh) != blk_handle:
+                continue
+            segs.extend(esegs)
+            layers.update(elayers)
+        if segs:
+            out[name] = {"segments": segs[:4000], "layers": sorted(layers)[:200]}
+    if not out:
+        notes.append("DWG 命名块内未取到 LINE/LWPOLYLINE 几何；回退近邻几何")
+    return out, notes
+
+
+def dwg_block_geometries(path, budget, log, max_blocks=200, geom_budget=None, geom_max_rows=None, roi=None):
+    """DWG 短预算块内几何试探：在预算内解块名 + 实体归属 + LINE/LWPOLY。
+
+    超时/缺数据/超过段数上限时只给 note，由上层回退近邻几何，绝不阻塞整张图。
+    返回与 dxf_block_geometries 一致： {块名: {"segments": [...], "layers": [...]}}
+    """
+    notes: list[str] = []
+    place_budget = max(4.0, min(20.0, budget * 0.3))
+    block_rows = _rows("blocks", path, min(8.0, budget), notes) or []
+    placement_rows = _rows("placements", path, place_budget, notes) or []
+    geom_budget = geom_budget if geom_budget and geom_budget > 0 else max(8.0, budget * 0.6)
+    geom_rows = _dwg_entity_lines_by_handle(path, geom_budget, notes, roi=roi, max_rows=geom_max_rows)
+    out, build_notes = _build_dwg_block_geometries(block_rows, placement_rows, geom_rows, max_blocks=max_blocks)
+    notes += build_notes
+    log(f"DWG 块几何试探：命名块 {len({str(r[1]) for r in block_rows if r and len(r) > 1})} 个，命中 {len(out)} 个")
+    return out, notes
 
 
 def _merge_intervals(iv):
@@ -1221,6 +1540,7 @@ def main():
     ap.add_argument("--with-attrib", action="store_true", help="解 ATTRIB（极慢，默认关）")
     ap.add_argument("--with-insert", action="store_true", help="解块引用统计")
     ap.add_argument("--with-blocks", action="store_true", help="解块定义清单（大图较慢）")
+    ap.add_argument("--with-block-geom", action="store_true", help="提取块定义内部几何，供几何指纹识图（DXF 全量；DWG 走短预算试探，超时自动回退近邻几何；需 --with-geom）")
     ap.add_argument("--detail-json", default=None,
                     help="额外写出 text_records/hits/geometry 的 detail JSON，供规范目录与规则解读使用")
     ap.add_argument("--only", default=None, help="只要这些类别，逗号分隔：梁,板,柱,墙,基础,门窗")
@@ -1229,6 +1549,10 @@ def main():
                     help="同 --filter：按关键词/正则查找图纸内容，输出文件、图框、图层、坐标")
     ap.add_argument("--budget", type=float, default=45.0, help="单阶段时间预算/秒，默认 45")
     ap.add_argument("--max-rows", type=int, default=200000)
+    ap.add_argument("--geom-budget", type=float, default=0.0,
+                    help="几何/块几何独立时间预算/秒（默认继承 --budget，大图可设更小）")
+    ap.add_argument("--geom-max-rows", type=int, default=0,
+                    help="几何线段数上限，0 表示不限；超限自动截断并回退近邻几何")
     ap.add_argument("--count-by", default="auto", choices=["auto", "label", "pos", "raw"],
                     help="根数口径：auto/label=集中标注(最接近根数)，pos=标注位置去重，raw=原文次数")
     ap.add_argument("--dedupe", type=float, default=1500.0, help="标注位置去重半径/图纸单位，默认 1500")
@@ -1255,6 +1579,8 @@ def main():
                     help="局部读取图面矩形 left,bottom,right,top（图纸单位）")
     ap.add_argument("--sheet", default=None,
                     help="局部读取缓存中的一个图框编号")
+    ap.add_argument("--dwg-dxf-fallback", action="store_true",
+                    help="DWG 块名解码为空/乱码时，自动转 DXF 后复扫一层（较稳，慢一些；CAD_DWG_DXF_FALLBACK=1 可默认开启）")
     args = ap.parse_args()
 
     if args.full or args.with_evidence:
@@ -1360,6 +1686,7 @@ def main():
                 cached = None
 
         file_notes: list[str] = []
+        fallback_dxf: Path | None = None
         local_sheets: list[dict] = []
         gsegs: list = []
         glayers: list[str] | None = [] if args.with_geom_layer else None
@@ -1375,18 +1702,44 @@ def main():
         else:
             if fmt == "DXF":
                 try:
-                    recs, layers, n, meta = dxf_records(str(f), args.max_rows, log)
+                    de_roi = roi if cache_dir is None else None
+                    recs, layers, n, meta = dxf_records(str(f), args.max_rows, log, roi=de_roi)
                 except Exception as e:
                     n, recs, layers, meta = [f"DXF 解析失败：{e}"], [], [], {}
             else:
                 try:
+                    de_roi = roi if cache_dir is None else None
                     recs, layers, n, meta = dwg_records(
                         str(f), want | ({"insert"} if args.with_insert else set()),
-                        args.budget, args.max_rows, log, want_blocks=args.with_blocks)
+                        args.budget, args.max_rows, log, want_blocks=args.with_blocks, roi=de_roi)
                 except Exception as e:
                     n, recs, layers, meta = [f"DWG 解析失败：{e}（如需可转 DXF）"], [], [], {}
             file_notes = list(n)
             notes += [f"{f.name}: {x}" for x in n]
+            if fmt == "DWG" and (args.dwg_dxf_fallback or os.environ.get("CAD_DWG_DXF_FALLBACK") == "1") and (
+                not recs
+                or any(k in x for x in file_notes for k in (
+                    "解码为空", "疑似编码乱码", "块名疑似乱码", "DWG 解析失败", "section map page not found",
+                ))
+            ):
+                try:
+                    from read_cad import convert_dwg_to_dxf
+                    dxf_path, cnote = convert_dwg_to_dxf(Path(f))
+                except Exception as e:
+                    dxf_path, cnote = None, f"自动转 DXF 复扫失败：{type(e).__name__} {e}"
+                if dxf_path:
+                    try:
+                        fdx = Path(dxf_path)
+                        recs2, layers2, n2, meta2 = dxf_records(str(fdx), args.max_rows, log, roi=de_roi)
+                        if recs2 or layers2 or meta2:
+                            recs, layers, meta, n = recs2, layers2, meta2, list(n2)
+                            fallback_dxf = fdx
+                            engine = "LibreDWG" if ("dwg2dxf" in (cnote or "")) else "ezdwg"
+                            msg = f"DWG 直读失败，已自动转 DXF（{engine}）复扫：块引用 {meta.get('insert_count', 0)} / 文字 {len(recs)}"
+                            file_notes = list(n) + [msg]
+                            notes.append(f"{f.name}: {msg}")
+                    except Exception as e:
+                        notes.append(f"{f.name}: 自动转 DXF 复扫失败：{type(e).__name__} {e}")
             for r in recs:
                 r["file"] = len(fstats)
             if recs and not args.no_sheet:
@@ -1408,17 +1761,47 @@ def main():
                     local_sheets = []
                     notes.append(f"{f.name}: 分图框失败 {e}")
 
+            block_geometries = meta.get("block_geometries")
+            if args.with_block_geom and fmt == "DXF" and not block_geometries:
+                gb = args.geom_budget if args.geom_budget and args.geom_budget > 0 else args.budget
+                gm = args.geom_max_rows if args.geom_max_rows and args.geom_max_rows > 0 else None
+                bg_res, bg_notes = dxf_block_geometries(str(f), gb, log, max_rows=gm)
+                if bg_res:
+                    meta["block_geometries"] = bg_res
+                if bg_notes:
+                    notes += [f"{f.name}: {x}" for x in bg_notes]
+                    file_notes.extend(bg_notes)
+            elif args.with_block_geom and fmt == "DWG" and fallback_dxf is not None:
+                bg_res, bg_notes = dxf_block_geometries(
+                    str(fallback_dxf),
+                    args.geom_budget if args.geom_budget and args.geom_budget > 0 else args.budget,
+                    log,
+                    max_rows=args.geom_max_rows if args.geom_max_rows and args.geom_max_rows > 0 else None)
+                if bg_res:
+                    meta["block_geometries"] = bg_res
+                if bg_notes:
+                    notes += [f"{f.name}: {x}" for x in bg_notes]
+                    file_notes += bg_notes
+
             if args.with_geom:
-                if fmt == "DWG":
+                gb = args.geom_budget if args.geom_budget and args.geom_budget > 0 else args.budget
+                gm = args.geom_max_rows if args.geom_max_rows and args.geom_max_rows > 0 else None
+                de_roi = roi if cache_dir is None else None
+                if fmt == "DWG" and fallback_dxf is not None:
                     if args.with_geom_layer:
-                        gsegs, glayers, gn = geometry_segments(str(f), args.budget, log, include_layers=True)
+                        gsegs, glayers, gn = dxf_geometry_segments(str(fallback_dxf), gb, log, include_layers=True, roi=de_roi, max_rows=gm)
                     else:
-                        gsegs, gn = geometry_segments(str(f), args.budget, log)
+                        gsegs, gn = dxf_geometry_segments(str(fallback_dxf), gb, log, roi=de_roi, max_rows=gm)
+                elif fmt == "DWG":
+                    if args.with_geom_layer:
+                        gsegs, glayers, gn = geometry_segments(str(f), gb, log, include_layers=True, roi=de_roi, max_rows=gm)
+                    else:
+                        gsegs, gn = geometry_segments(str(f), gb, log, roi=de_roi, max_rows=gm)
                 elif fmt == "DXF":
                     if args.with_geom_layer:
-                        gsegs, glayers, gn = dxf_geometry_segments(str(f), args.budget, log, include_layers=True)
+                        gsegs, glayers, gn = dxf_geometry_segments(str(f), gb, log, include_layers=True, roi=de_roi, max_rows=gm)
                     else:
-                        gsegs, gn = dxf_geometry_segments(str(f), args.budget, log)
+                        gsegs, gn = dxf_geometry_segments(str(f), gb, log, roi=de_roi, max_rows=gm)
                 else:
                     gsegs, gn = [], []
                 glayers = glayers if args.with_geom_layer else None
@@ -1483,6 +1866,16 @@ def main():
             for k, v in (meta.get("block_refs") or {}).items():
                 all_meta["block_refs"][k] = all_meta["block_refs"].get(k, 0) + v
             all_meta["insert_count"] = all_meta.get("insert_count", 0) + (meta.get("insert_count") or 0)
+            blk_defs = meta.get("block_defs")
+            if isinstance(blk_defs, list):
+                cur: list = all_meta.setdefault("block_defs", [])
+                for x in blk_defs:
+                    if x not in cur:
+                        cur.append(x)
+                all_meta["block_defs"] = sorted(cur)
+            bg = meta.get("block_geometries") or {}
+            if isinstance(bg, dict) and bg:
+                all_meta.setdefault("block_geometries", {}).update(bg)
 
         cache_bytes = 0
         if cache_file:

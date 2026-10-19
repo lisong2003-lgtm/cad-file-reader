@@ -7,6 +7,11 @@
 # 默认输出完整；环境变量 CAD_CONCISE=1 可全局改为精简默认。
 set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# ==== 运行时自举：缺依赖自动补齐（可设 CAD_AUTO_SETUP=0 关闭） ====
+if [ -f "$SKILL_DIR/scripts/ensure_runtime.sh" ]; then
+  bash "$SKILL_DIR/scripts/ensure_runtime.sh" --quiet || exit $?
+fi
 PYTHON_BIN=""
 for candidate in \
   "$HOME"/.cache/codex-runtimes/*/dependencies/python/bin/python3 \

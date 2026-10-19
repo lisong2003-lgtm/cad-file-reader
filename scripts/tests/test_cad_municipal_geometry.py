@@ -87,6 +87,72 @@ class MunicipalGeometryTest(unittest.TestCase):
         self.assertIn("input_geometry", review_types)
         self.assertEqual(result["summary"]["geometry_segments"], 0)
 
+    def test_landscape_municipal_layer_aliases_and_negative_traffic(self):
+        detail = {
+            "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 100000, 100000]}]},
+            "files": [{"name": "outdoor.dwg"}],
+            "text_records": [
+                {"kind": "TEXT", "text": "室外综合管网平面图 1:500 单位：m", "layer": "TITLE", "x": 100, "y": 100, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "人行垂直交通枢纽二", "layer": "TEXT", "x": 100, "y": 200, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "室外强电 电缆排管", "layer": "TEXT_强电", "x": 100, "y": 300, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "路灯 景观照明", "layer": "TEXT_照明", "x": 100, "y": 400, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "雨水管 DN300", "layer": "TEXT_雨水", "x": 100, "y": 500, "sheet": 1, "file": 0},
+            ],
+            "geometry_segments": [[
+                [0, 0, 1000, 0], [0, 0, 0, 1000], [1000, 0, 1000, 1000],
+                [0, 1000, 1000, 1000], [100, 100, 500, 100],
+            ]],
+            "geometry_layers": [[
+                "SITE_ROAD", "-TY-道路及园路中心线", "ROAD_DOTE",
+                "SITE_ROAD_DOTE", "WIRE-照明",
+            ]],
+        }
+        result, _out = self.run_script(detail)
+        systems = {row["system"] for row in result["systems"]}
+        self.assertIn("power", systems)
+        self.assertIn("street_lighting", systems)
+        self.assertNotIn("traffic", systems)
+        cats = {row["category"] for row in result["municipal_geometry"]}
+        self.assertIn("road_centerline", cats)
+        self.assertIn("road_edge", cats)
+        self.assertIn("street_light", cats)
+        self.assertLessEqual(result["summary"]["review_items"], 3)
+
+    def test_outdoor_layer_aliases_and_sponge_are_classified(self):
+        detail = {
+            "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 100000, 100000]}]},
+            "files": [{"name": "outdoor-alias.dwg"}],
+            "text_records": [
+                {"kind": "TEXT", "text": "室外综合管网平面图 1:500 单位：m", "layer": "TITLE", "x": 100, "y": 100, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "海绵城市 蓄水模块", "layer": "海绵设施", "x": 100, "y": 200, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "道路中心标高 12.50", "layer": "道路中心标高", "x": 100, "y": 300, "sheet": 1, "file": 0},
+            ],
+            "geometry_segments": [[
+                [0, 0, 1000, 0], [0, 0, 0, 1000], [1000, 0, 1000, 1000],
+                [0, 1000, 1000, 1000], [100, 100, 500, 100], [500, 100, 500, 500],
+                [10, 10, 20, 10], [30, 30, 40, 30], [50, 50, 60, 50],
+                [70, 70, 80, 70], [90, 90, 100, 90], [110, 110, 120, 110],
+            ]],
+            "geometry_layers": [[
+                "DIM_污水", "DIM_雨水", "DIM_给水", "HEATER", "管线-废水管",
+                "道路中心标高", "管线-暖通管线", "管线-消防管", "管线-动照管线",
+                "EQUIP_雨水斗", "给排水设备", "海绵设施",
+            ]],
+        }
+        result, _out = self.run_script(detail)
+        cats = {row["category"] for row in result["municipal_geometry"]}
+        self.assertIn("pipe", cats)
+        self.assertIn("road_grade", cats)
+        self.assertIn("inlet", cats)
+        self.assertIn("water_equipment", cats)
+        self.assertIn("sponge_facility", cats)
+        systems = {row["system"] for row in result["systems"]}
+        self.assertIn("heating", systems)
+        self.assertIn("fire_protection", systems)
+        self.assertIn("sponge_city", systems)
+        review_types = {row["type"] for row in result["review"]}
+        self.assertNotIn("municipal_layer", review_types)
+
     def test_connectivity_marks_isolated_municipal_segment(self):
         detail = {
             "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 1000, 1000]}]},

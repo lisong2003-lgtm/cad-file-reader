@@ -48,6 +48,24 @@ class InteriorFinishTest(unittest.TestCase):
         self.assertTrue(sections & {"components", "references", "interior_finish_geometry"})
         self.assertTrue(all(row["final_quantity"] is False for row in contract["candidates"] + contract["review_candidates"]))
 
+    def test_building_notes_insulation_and_schedule_are_classified(self):
+        detail = {
+            "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 50000, 50000]}]},
+            "files": [{"name": "建筑总说明.dwg"}],
+            "text_records": [
+                {"kind": "TEXT", "text": "建筑总说明 1:100 单位：mm", "layer": "TITLE", "x": 1000, "y": 49000, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "外墙外保温 岩棉 传热系数", "layer": "NOTE", "x": 1000, "y": 48000, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "楼面做法表 地面做法", "layer": "TITLE", "x": 1000, "y": 47000, "sheet": 1, "file": 0},
+            ],
+            "geometry_segments": [[[0, 0, 40000, 0], [40000, 0, 40000, 40000]]],
+            "geometry_layers": [["INT-WALL-保温", "INT-FLOOR-地面"]],
+        }
+        result, _out = self.run_script(detail)
+        systems = {row["system"] for row in result["systems"]}
+        cats = {row["category"] for row in result["components"]}
+        self.assertIn("insulation", systems)
+        self.assertIn("insulation", cats)
+
     def test_missing_scale_and_geometry_enter_review(self):
         detail = {
             "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 1000, 1000]}]},

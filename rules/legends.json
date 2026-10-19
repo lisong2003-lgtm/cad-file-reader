@@ -437,6 +437,40 @@
         "PV"
       ],
       "confidence_base": 0.84
+    },
+    {
+      "discipline": "园林景观",
+      "semantic": "landscape",
+      "tokens": [
+        "苗木表",
+        "种植",
+        "乔木",
+        "灌木",
+        "地被",
+        "草坪",
+        "草皮",
+        "胸径",
+        "冠幅",
+        "土球",
+        "铺装",
+        "园路",
+        "景墙",
+        "坐凳",
+        "花钵",
+        "廊架",
+        "水景",
+        "汀步",
+        "波打",
+        "收边",
+        "PLANT",
+        "PLANTING",
+        "TREE",
+        "SHRUB",
+        "GROUNDCOVER",
+        "PAVING",
+        "LANDSCAPE"
+      ],
+      "confidence_base": 0.84
     }
   ],
   "symbols": [
@@ -650,6 +684,27 @@
         "mullion"
       ],
       "confidence_base": 0.85
+    },
+    {
+      "discipline": "园林景观",
+      "semantic": "landscape_tree",
+      "aliases": [
+        "树",
+        "乔木",
+        "银杏",
+        "国槐",
+        "白蜡",
+        "栾树",
+        "法桐",
+        "女贞",
+        "紫薇",
+        "月季",
+        "灌木",
+        "地被",
+        "植",
+        "TREE"
+      ],
+      "confidence_base": 0.82
     }
   ]
 }

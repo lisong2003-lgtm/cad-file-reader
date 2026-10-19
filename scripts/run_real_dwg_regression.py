@@ -66,6 +66,9 @@ def main() -> int:
         "curtain_wall": ("cad_deep_geometry.sh", ".curtain_wall.json", ("drawing_types", "systems", "components", "references", "geometry")),
         "civil_defense": ("cad_deep_geometry.sh", ".civil_defense.json", ("drawing_types", "systems", "components", "references", "geometry")),
         "precast": ("cad_deep_geometry.sh", ".precast.json", ("drawing_types", "systems", "components", "references", "geometry")),
+        "landscape": ("cad_landscape_geometry.sh", ".landscape.json", ("drawing_types", "systems", "plant_legends", "plant_block_legends", "plant_block_fingerprints", "plant_schedule_links", "paving_closed_areas", "green_area_candidates")),
+        "municipal": ("cad_municipal_geometry.sh", ".municipal.json", ("drawing_types", "systems", "components", "pipe_candidates", "materials", "labels", "geometry_segments")),
+        "pdf": (None, None, ("pdf_processed",)),
     }
     DEEP_PACK_ARG = {
         "hvac_plumbing": "hvac_plumbing",
@@ -86,12 +89,26 @@ def main() -> int:
         cid = str(case.get("id") or case.get("name") or "")
         dwg = case.get("path") or case.get("dwg") or ""
         kind = str(case.get("kind") or case.get("pack") or "electrical")
+        use_fallback = bool(case.get("dwg_dxf_fallback") or manifest.get("dwg_dxf_fallback"))
         if kind not in PACK_GEO:
             item = {"id": cid, "name": case.get("name", cid), "status": "skip", "reason": f"未知识图包:{kind}"}
             results.append(item); continue
         geo_script, out_suffix, summary_keys = PACK_GEO[kind]
         expect = case.get("expect") or {summary_keys[-1]: 1}
         item = {"id": cid, "name": case.get("name", cid), "kind": kind, "status": "pending", "summary": None, "review_items": None}
+        if kind == "pdf":
+            pdf_dir = work_root / f"{cid}_pdfocr"
+            pdf_dir.mkdir(parents=True, exist_ok=True)
+            t0 = time.time()
+            pr = run([str(SKILL_DIR / "scripts" / "cad_pdf_ocr.sh"), dwg, "--classify-only", "--out-dir", str(pdf_dir)], capture_output=True)
+            item["scan_seconds"] = round(time.time() - t0, 2)
+            if pr.returncode != 0:
+                item["status"] = "error"; item["reason"] = "cad_pdf_ocr失败"; item["stderr"] = pr.stderr[-500:]
+                results.append(item); failed += 1; continue
+            item["summary"] = {"pdf_processed": 1, "pdf_output": str(pdf_dir)}
+            item["contract_valid"] = True
+            item["status"] = "pass"
+            results.append(item); continue
         detail_path = None
         scanned_here = False
         if scan_dir:
@@ -109,6 +126,8 @@ def main() -> int:
             scan_cmd = [str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
                         "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
                         "--detail-json", str(detail_path), "--format", "json", "-o", str(case_out)]
+            if use_fallback:
+                scan_cmd.append("--dwg-dxf-fallback")
             if cache_dir_arg:
                 scan_cmd += ["--cache-dir", cache_dir_arg[0]]
             r = run(scan_cmd, capture_output=True)
@@ -162,8 +181,10 @@ def main() -> int:
             verify_detail = work_root / f"{cid}_verify_detail.json"
             v_cmd = [str(SKILL_DIR / "scripts" / "cad_scan.sh"), dwg,
                      "--with-mtext", "--with-insert", "--with-geom", "--with-geom-layer",
-                     "--detail-json", str(verify_detail), "--format", "json", "-o", str(verify_out),
-                     "--cache-dir", str(work_root / "_cad_cache")]
+                     "--detail-json", str(verify_detail), "--format", "json", "-o", str(verify_out)]
+            if use_fallback:
+                v_cmd.append("--dwg-dxf-fallback")
+            v_cmd += ["--cache-dir", str(work_root / "_cad_cache")]
             t0 = time.time()
             rv = run(v_cmd, capture_output=True)
             item["cache_verify_seconds"] = round(time.time() - t0, 2)

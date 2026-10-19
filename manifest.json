@@ -1,7 +1,7 @@
 {
   "name": "cad-file-reader",
-  "version": "0.26.4",
-  "description": "本地读取 DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机 pdf-inspector 分类 + 本地 OCR（分 pdf_vector/pdf_raster/pdf_hybrid，输出 page_index/page_bbox、矢量文字坐标与图签栏元数据锚点（版式优先））；提取图层、文字、块、图框、几何、观点候选、系统拓扑、长度/面积/体积测量候选和规范图集元数据。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、材料量、造价或结算量。",
+  "version": "0.31.1",
+  "description": "本地读取 DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机分流+本地 OCR。提取图层、文字、块、图框、几何、17+1 类专业识图候选（含园林景观：苗木图例、乔灌地被候选、铺装闭合环、设计院校准、DWG块名净化与自动转DXF复扫）、系统拓扑、长度/面积/体积测量候选和规范图集元数据。仅输出识图与测量候选（final_quantity=false）。安装一条命令：scripts/setup.sh（轻量包）或解压后直接用（完整包）。",
   "author": "lis",
   "license": "CC-BY-NC-SA-4.0",
   "entry": "SKILL.md",
@@ -43,12 +43,30 @@
     "scripts/cad_doors_windows_stairs_insulation_waterproof.sh",
     "scripts/cad_fire_prevention_accessibility_green_energy.sh",
     "scripts/cad_doors_windows_stairs_insulation_waterproof.py",
-    "scripts/cad_fire_prevention_accessibility_green_energy.py"
+    "scripts/cad_fire_prevention_accessibility_green_energy.py",
+    "scripts/setup.sh",
+    "scripts/deps_check.sh",
+    "scripts/demo.sh",
+    "scripts/ensure_runtime.sh",
+    "scripts/generate_sample.py",
+    "scripts/cad_landscape_geometry.sh",
+    "scripts/cad_landscape_calibrate.sh",
+    "scripts/cad_landscape_pdf.sh",
+    "scripts/cad_landscape_pdf.py",
+    "scripts/qto_validate.sh",
+    "scripts/qto_validate.py",
+    "scripts/qto_project.py",
+    "scripts/qto_p1_link.py",
+    "scripts/qto_p2_summarize.py",
+    "scripts/qto_p2_summarize.sh",
+    "scripts/qto_p3_clash.py",
+    "scripts/qto_p3_clash.sh"
   ],
   "privacy": "本机运行，图纸字节不上传；DWG/DXF 解析使用随包第三方库，详见 NOTICE.md。",
   "boundary": "只做识图、证据、语义/拓扑/变化候选和测量候选（final_quantity=false）；不输出最终工程量、材料量、造价、结算量、规范符合性结论或设计审查结论。",
-  "contract_schema": "cad-file-reader/v0",
+  "contract_schema": "cad-file-reader/v0; qto-project/v1(联动可选)",
   "schemas": [
-    "schemas/candidate-v0.schema.json"
+    "schemas/candidate-v0.schema.json",
+    "schemas/qto-project-v1.schema.json"
   ]
 }

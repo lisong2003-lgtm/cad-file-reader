@@ -24,6 +24,7 @@ from cad_steel_geometry import (
     iter_geometry,
     load_rules,
     match_rule,
+    pattern_hit,
     read_records,
     scale_unit_audit,
     segment_length,
@@ -57,13 +58,18 @@ def drawing_type_candidates(records: list[dict[str, Any]], rules: dict[str, Any]
     return out
 
 
+def _negative_hit(text: Any, rule: dict[str, Any]) -> bool:
+    value = compact(text).upper()
+    return any(pattern_hit(value, pattern) for pattern in (rule.get("negative_patterns") or []))
+
+
 def system_candidates(records: list[dict[str, Any]], data: dict[str, Any], rules: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
     system_rules = rules.get("system_rules") or []
     for rec in records:
-        system, _rule, pattern = match_rule(rec["text"], system_rules, "system")
-        if not system:
+        system, rule, pattern = match_rule(rec["text"], system_rules, "system")
+        if not system or _negative_hit(rec["text"], rule):
             continue
         key = (context_of(rec), system, rec.get("layer"), rec["text"])
         if key in seen:
@@ -81,8 +87,8 @@ def system_candidates(records: list[dict[str, Any]], data: dict[str, Any], rules
             "evidence": [evidence_of(rec)],
         })
     for fi, _si, layer, _seg in iter_geometry(data):
-        system, _rule, pattern = match_rule(layer, system_rules, "system")
-        if not system:
+        system, rule, pattern = match_rule(layer, system_rules, "system")
+        if not system or _negative_hit(layer, rule):
             continue
         file_name = data_file_name(data, fi)
         key = (file_name, None, system, layer)

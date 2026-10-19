@@ -353,6 +353,21 @@ def _find_oda_converter() -> Optional[str]:
             return candidate
     return shutil.which("ODAFileConverter")
 
+def _find_dwg2dxf() -> Optional[str]:
+    candidates = [
+        str(Path.home() / ".codex/bin/dwg2dxf"),
+        "/opt/homebrew/bin/dwg2dxf",
+        "/usr/local/bin/dwg2dxf",
+        "/tmp/libredwg_install/bin/dwg2dxf",
+    ]
+    found = shutil.which("dwg2dxf")
+    if found:
+        return found
+    for candidate in candidates:
+        if Path(candidate).exists():
+            return candidate
+    return None
+
 def _convert_with_ezdwg(src: Path, outdir: Path) -> tuple[Optional[Path], str]:
     try:
         from ezdwg.convert import to_dxf
@@ -402,25 +417,32 @@ def _convert_with_oda(exe: str, src: Path, outdir: Path) -> Optional[Path]:
     return dxf_files[0] if dxf_files else None
 
 def convert_dwg_to_dxf(src: Path) -> tuple[Optional[Path], str]:
+    def persist(dxf: Path) -> Path:
+        """把临时目录里的 DXF 复制到独立临时目录，避免 with 退出后被删。"""
+        stable = Path(tempfile.mkdtemp(prefix="cad-dwg-dxf-"))
+        target = stable / dxf.name
+        shutil.copy2(dxf, target)
+        return target
+
     with tempfile.TemporaryDirectory(prefix="cad-reader-") as tmp:
         dxf, note = _convert_with_ezdwg(src, Path(tmp))
         if dxf:
-            return dxf, note
+            return persist(dxf), note
 
-    dwg2dxf = shutil.which("dwg2dxf")
+    dwg2dxf = _find_dwg2dxf()
     oda = _find_oda_converter()
 
     if dwg2dxf:
         with tempfile.TemporaryDirectory(prefix="cad-reader-") as tmp:
             dxf = _convert_with_dwg2dxf(dwg2dxf, src, Path(tmp))
             if dxf:
-                return dxf, f"Converted with dwg2dxf ({dwg2dxf})"
+                return persist(dxf), f"Converted with dwg2dxf ({dwg2dxf})"
 
     if oda:
         with tempfile.TemporaryDirectory(prefix="cad-reader-") as tmp:
             dxf = _convert_with_oda(oda, src, Path(tmp))
             if dxf:
-                return dxf, f"Converted with ODAFileConverter ({oda})"
+                return persist(dxf), f"Converted with ODAFileConverter ({oda})"
 
     return None, "No DWG converter found"
 

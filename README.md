@@ -31,23 +31,60 @@ SkillHub 轻量包（纯文本合规包，不含二进制 vendor）：
 
 ```bash
 cd "$CODEX_HOME/skills/cad-file-reader"
-scripts/install_vendor.sh   # 一条命令自动补齐依赖
+bash scripts/install_vendor.sh   # 默认零配置：自动用公共 PyPI 补齐依赖到本包 vendor/
 ```
 
 装好后自检（一条命令看哪些能力可用/缺依赖）：
 
 ```bash
-scripts/deps_check.sh --minimal
+bash scripts/deps_check.sh --minimal
 ```
 
 ## 快速开始（30 秒见结果）
 
 ```bash
-scripts/demo.sh                       # 用内置样例 DXF 跑一次完整识图，展示首屏 JSON
+bash scripts/demo.sh                       # 用内置样例 DXF 跑一次完整识图，展示首屏 JSON
 scripts/cad_scan.sh 图纸.dwg --only 梁,板,柱,墙 --cluster 1500 --format md -o 图纸扫描
 scripts/cad_scan.sh 图纸.dwg --with-mtext --with-geom --detail-json 详情.json --format all -o 图纸扫描
 scripts/cad_measure.sh 详情.json --out-dir 测量候选
 ```
+
+SkillHub 轻量包不含 `.dxf` 样例，`scripts/demo.sh` 会用 `scripts/generate_sample.py` 现场还原内置样例后继续。
+
+## 五件套联动端到端示例（qto-project/v1）
+
+在同一个项目目录里跑「识别 → P1 → P2 → P3 → 校验」，**不要求五件全装**；缺专业会占位，不阻断体系。
+
+```bash
+# 1) 建联动项目，--recognized 支持一次多个量算专业（已识别/要接入的）
+SKILL_DIR/cad-file-reader/scripts/qto_project.py init 项目A \
+  --project 示例项目 --building 1#楼 \
+  --recognized tujian-suanliang anzhuang-suanliang zhuangshi-suanliang yuanlin-suanliang
+
+# 2) 把你的识图结果包装进各专业识别层（base + 各量算专业）
+SKILL_DIR/cad-file-reader/scripts/qto_project.py wrap 1#楼识图.json \
+  --specialty cad-file-reader --project 示例项目 --building 1#楼 \
+  --out 项目A/识别/cad-file-reader/1#楼__cad-file-reader__20261019.json
+# …量算专业同理（--specialty tujian-suanliang / …）
+
+# 缺识图但已登记的专业可补占位：
+SKILL_DIR/cad-file-reader/scripts/qto_project.py placeholder 项目A \
+  --specialty zhuangshi-suanliang --project 示例项目 --note "本轮未出图，待装饰识图"
+
+# 3) P1 算量联动登记：有既有量算结果用 --quantity 附着（仅登记，final_quantity=false）
+SKILL_DIR/cad-file-reader/scripts/qto_p1_link.py --project-dir 项目A \
+  --specialty tujian-suanliang --quantity 土建量算.json --draft-type 物资计划
+SKILL_DIR/cad-file-reader/scripts/qto_p1_link.py --project-dir 项目A --specialty anzhuang-suanliang
+
+# 4) P2 汇总 + P3 交叉核对
+SKILL_DIR/cad-file-reader/scripts/qto_p2_summarize.sh --project-dir 项目A
+SKILL_DIR/cad-file-reader/scripts/qto_p3_clash.sh --project-dir 项目A
+
+# 5) 项目级校验：qto 契约 + 识别层完整性 + regression_pass/precision_note 分开统计
+SKILL_DIR/cad-file-reader/scripts/qto_validate.sh 项目A --report-json 项目A/validate-report.json
+```
+
+产物落在：`.qto/project.yaml`、`识别/<专业slug>/`、`算量/<专业slug>/`、`汇总/<key>__汇总__<date>.json|csv`、`汇总/<key>__交叉核对__<date>.json|csv`。全链路只登记与汇总，不计算最终工程量。
 
 ## 使用指引
 

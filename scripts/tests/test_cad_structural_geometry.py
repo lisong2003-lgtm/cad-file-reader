@@ -60,6 +60,26 @@ class StructuralGeometryTest(unittest.TestCase):
         self.assertTrue(sections & {"members", "rebars", "structural_geometry"})
         self.assertTrue(all(row["final_quantity"] is False for row in contract["candidates"] + contract["review_candidates"]))
 
+    def test_civil_defense_structure_terms_are_classified(self):
+        detail = {
+            "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 10000, 10000]}]},
+            "files": [{"name": "人防结构.dwg"}],
+            "text_records": [
+                {"kind": "TEXT", "text": "人防结构平面图 1:100 单位：mm", "layer": "TITLE", "x": 100, "y": 9900, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "临空墙 Q1", "layer": "S-WALL", "x": 1000, "y": 1000, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "门框墙 MKQ1", "layer": "S-WALL", "x": 1200, "y": 1000, "sheet": 1, "file": 0},
+                {"kind": "TEXT", "text": "人防顶板 250厚", "layer": "S-SLAB", "x": 1300, "y": 1000, "sheet": 1, "file": 0},
+            ],
+            "geometry_segments": [[[0, 0, 1000, 0], [1000, 0, 1000, 1000]]],
+            "geometry_layers": [["S-WALL-临空墙", "S-SLAB-人防顶板"]],
+        }
+        result, _out = self.run_script(detail)
+        systems = {row["system"] for row in result["systems"]}
+        members = {row["category"] for row in result["members"]}
+        self.assertIn("civil_defense", systems)
+        self.assertIn("wall", members)
+        self.assertIn("slab", members)
+
     def test_missing_scale_and_geometry_enter_review(self):
         detail = {
             "meta": {"sheets": [{"id": 1, "bbox": [0, 0, 1000, 1000]}]},

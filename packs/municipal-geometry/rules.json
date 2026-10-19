@@ -185,6 +185,21 @@
       ]
     },
     {
+      "type": "sponge_city",
+      "patterns": [
+        "海绵城市",
+        "海绵城市平面图",
+        "雨水花园",
+        "下沉式绿地",
+        "生物滞留",
+        "透水铺装",
+        "蓄水模块",
+        "溢流设施",
+        "SPONGE CITY",
+        "LID"
+      ]
+    },
+    {
       "type": "schedule",
       "patterns": [
         "工程数量表",
@@ -304,7 +319,10 @@
       "patterns": [
         "再生水",
         "中水",
-        "RECLAIMED WATER"
+        "RECLAIMED WATER",
+        "中水管",
+        "中水管道",
+        "再生水管线"
       ]
     },
     {
@@ -313,7 +331,12 @@
         "热力",
         "供热",
         "热网",
-        "HEATING"
+        "HEATING",
+        "HEATER",
+        "暖通管线",
+        "采暖管线",
+        "供热管线",
+        "暖通"
       ]
     },
     {
@@ -331,7 +354,18 @@
         "电力",
         "电缆",
         "排管",
-        "POWER"
+        "POWER",
+        "强电",
+        "弱电",
+        "室外强电",
+        "电缆排管",
+        "电力排管",
+        "电缆沟",
+        "动照管线",
+        "供电管线",
+        "电力管线",
+        "照明管线",
+        "动力管线"
       ]
     },
     {
@@ -349,18 +383,32 @@
         "道路照明",
         "路灯",
         "照明",
-        "STREET LIGHTING"
+        "STREET LIGHTING",
+        "景观照明",
+        "庭院灯",
+        "草坪灯",
+        "照树灯"
       ]
     },
     {
       "system": "traffic",
       "patterns": [
-        "交通",
-        "标志",
-        "标线",
+        "交通设施",
+        "交通标志",
+        "交通标线",
         "信号灯",
         "护栏",
+        "监控",
         "TRAFFIC"
+      ],
+      "negative_patterns": [
+        "人行垂直交通",
+        "垂直交通",
+        "交通枢纽",
+        "公共交通",
+        "交通组织",
+        "人行交通",
+        "楼电梯"
       ]
     },
     {
@@ -432,20 +480,33 @@
         "市政工程",
         "MUNICIPAL"
       ]
+    },
+    {
+      "system": "fire_protection",
+      "patterns": [
+        "消防管",
+        "消防管线",
+        "自动喷淋管",
+        "喷淋管",
+        "消防喷淋",
+        "FIRE PROTECTION",
+        "FIRE"
+      ]
+    },
+    {
+      "system": "sponge_city",
+      "patterns": [
+        "海绵城市",
+        "雨水花园",
+        "下沉式绿地",
+        "生物滞留",
+        "透水铺装",
+        "蓄水模块",
+        "溢流设施"
+      ]
     }
   ],
   "component_rules": [
-    {
-      "category": "road_centerline",
-      "system": "road",
-      "patterns": [
-        "道路中线",
-        "路线中线",
-        "中线",
-        "CENTERLINE",
-        "CL"
-      ]
-    },
     {
       "category": "road_edge",
       "system": "road",
@@ -453,7 +514,9 @@
         "道路边线",
         "车行道边线",
         "路缘线",
-        "EDGE LINE"
+        "EDGE LINE",
+        "SITE_ROAD_DOTE",
+        "ROAD_DOTE"
       ]
     },
     {
@@ -465,7 +528,32 @@
         "平石",
         "缘石",
         "KERB",
-        "CURB"
+        "CURB",
+        "ROAD-KERB",
+        "ROAD-KERB-",
+        "KERB-LINE"
+      ]
+    },
+    {
+      "category": "road_centerline",
+      "system": "road",
+      "patterns": [
+        "道路中线",
+        "路线中线",
+        "中线",
+        "CENTERLINE",
+        "CL",
+        "SITE_ROAD",
+        "DL道路线",
+        "TY-道路及园路中心线",
+        "道路及园路中心线",
+        "道路中心线",
+        "车辆段道路",
+        "13-S1-道路线",
+        "道路线",
+        "ROAD",
+        "d11-总平面-道路",
+        "D11-总平面-道路"
       ]
     },
     {
@@ -640,7 +728,10 @@
         "雨水井",
         "污水井",
         "跌水井",
-        "MANHOLE"
+        "MANHOLE",
+        "雨水口",
+        "集水井",
+        "井盖"
       ]
     },
     {
@@ -650,7 +741,144 @@
         "雨水口",
         "集水井",
         "进水口",
-        "INLET"
+        "INLET",
+        "EQUIP_雨水斗",
+        "雨水斗"
+      ]
+    },
+    {
+      "category": "road_grade",
+      "system": "road",
+      "patterns": [
+        "道路中心标高",
+        "道路标高",
+        "纵坡",
+        "横坡",
+        "道路坡度"
+      ]
+    },
+    {
+      "category": "water_equipment",
+      "system": "water_supply",
+      "patterns": [
+        "给排水设备",
+        "给水设备",
+        "EQUIP_给水"
+      ]
+    },
+    {
+      "category": "water_equipment",
+      "system": "sewage",
+      "patterns": [
+        "EQUIP_污水",
+        "污水设备",
+        "污水提升设备"
+      ]
+    },
+    {
+      "category": "sponge_facility",
+      "system": "sponge_city",
+      "patterns": [
+        "蓄水模块",
+        "雨水花园",
+        "下沉式绿地",
+        "生物滞留",
+        "溢流设施",
+        "海绵设施"
+      ]
+    },
+    {
+      "category": "permeable_pavement",
+      "system": "sponge_city",
+      "patterns": [
+        "透水铺装",
+        "透水砖",
+        "透水混凝土"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "sewage",
+      "patterns": [
+        "DIM_污水",
+        "废水管",
+        "废水管线",
+        "污水管线",
+        "PIPE-污水",
+        "PIPE-废水",
+        "管线-废水管"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "rainwater",
+      "patterns": [
+        "DIM_雨水",
+        "雨水管",
+        "雨水管线",
+        "PIPE-雨水"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "water_supply",
+      "patterns": [
+        "给水管",
+        "给水管道",
+        "给水管道",
+        "PIPE-给水",
+        "DIM_给水"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "reclaimed_water",
+      "patterns": [
+        "中水管",
+        "中水管道",
+        "再生水管线",
+        "PIPE-中水",
+        "管线-中水管"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "power",
+      "patterns": [
+        "动照管线",
+        "供电管线",
+        "电力管线",
+        "照明管线",
+        "动力管线",
+        "PIPE-动照",
+        "PIPE-供电"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "fire_protection",
+      "patterns": [
+        "消防管",
+        "消防管线",
+        "自动喷淋管",
+        "喷淋管",
+        "PIPE-消防",
+        "PIPE-喷淋"
+      ]
+    },
+    {
+      "category": "pipe",
+      "system": "heating",
+      "patterns": [
+        "HEATER",
+        "HEATING",
+        "暖通管线",
+        "采暖管线",
+        "供热管线",
+        "PIPE-暖供水",
+        "PIPE-暖回水",
+        "暖供水",
+        "暖回水"
       ]
     },
     {
@@ -668,7 +896,16 @@
         "污水管",
         "再生水管",
         "通信管",
-        "电力管"
+        "电力管",
+        "管综",
+        "综合管网",
+        "室外管网",
+        "管网",
+        "管线-综合",
+        "管线-给排水",
+        "DIM_管线",
+        "EQUIP_管线",
+        "管线-"
       ]
     },
     {
@@ -700,7 +937,14 @@
         "路灯",
         "灯杆",
         "照明灯具",
-        "STREET LIGHT"
+        "STREET LIGHT",
+        "照明",
+        "景观照明",
+        "庭院灯",
+        "草坪灯",
+        "照树灯",
+        "WIRE-照明",
+        "景观电气"
       ]
     },
     {
@@ -760,6 +1004,22 @@
         "管道基础",
         "SUPPORT"
       ]
+    },
+    {
+      "category": "cable_duct",
+      "system": "power",
+      "patterns": [
+        "电缆排管",
+        "电力排管",
+        "电缆沟",
+        "电缆隧道",
+        "强电排管",
+        "弱电排管",
+        "强电",
+        "弱电",
+        "室外强电",
+        "电缆"
+      ]
     }
   ],
   "pipe_rules": [
@@ -770,7 +1030,9 @@
         "雨水管道",
         "雨水管线",
         "雨水涵",
-        "STORM"
+        "STORM",
+        "DIM_雨水",
+        "雨水斗"
       ]
     },
     {
@@ -779,7 +1041,10 @@
         "污水管",
         "污水管道",
         "污水管线",
-        "SANITARY"
+        "SANITARY",
+        "DIM_污水",
+        "废水管",
+        "管线-废水管"
       ]
     },
     {
@@ -788,7 +1053,11 @@
         "给水管",
         "给水管道",
         "供水管",
-        "WATER SUPPLY"
+        "WATER SUPPLY",
+        "DIM_给水",
+        "EQUIP_给水",
+        "给排水设备",
+        "管线-给水"
       ]
     },
     {
@@ -796,7 +1065,9 @@
       "patterns": [
         "再生水管",
         "中水管",
-        "RECLAIMED WATER"
+        "RECLAIMED WATER",
+        "管线-中水管",
+        "中水管道"
       ]
     },
     {
@@ -805,7 +1076,10 @@
         "热力管",
         "供热管",
         "热网",
-        "HEATING"
+        "HEATING",
+        "HEATER",
+        "管线-暖通管线",
+        "暖通管线"
       ]
     },
     {
@@ -823,7 +1097,11 @@
         "电力排管",
         "电缆管",
         "电力管",
-        "POWER"
+        "POWER",
+        "管线-动照管线",
+        "管线-供电管线",
+        "动照管线",
+        "供电管线"
       ]
     },
     {
@@ -842,6 +1120,23 @@
         "排水管道",
         "排水管线",
         "DRAINAGE"
+      ]
+    },
+    {
+      "system": "fire_protection",
+      "patterns": [
+        "管线-消防管",
+        "管线-自动喷淋管",
+        "自动喷淋管",
+        "消防管线"
+      ]
+    },
+    {
+      "system": "sponge_city",
+      "patterns": [
+        "雨水斗",
+        "蓄水模块",
+        "溢流设施"
       ]
     }
   ],
@@ -983,6 +1278,39 @@
     "路缘石",
     "人行道",
     "检查井",
-    "管线"
+    "管线",
+    "SITE_ROAD",
+    "ROAD_DOTE",
+    "DL道路线",
+    "TY-道路及园路中心线",
+    "强电",
+    "弱电",
+    "照明",
+    "电缆",
+    "SITE_ROAD_DOTE",
+    "室外强电",
+    "电缆排管",
+    "景观照明",
+    "庭院灯",
+    "草坪灯",
+    "HEATER",
+    "HEATING",
+    "EQUIP_",
+    "DIM_污水",
+    "DIM_雨水",
+    "DIM_给水",
+    "管线-",
+    "道路中心标高",
+    "d11-总平面-道路",
+    "给排水设备",
+    "海绵城市",
+    "蓄水模块",
+    "透水铺装",
+    "雨水花园",
+    "下沉式绿地",
+    "生物滞留",
+    "海绵设施",
+    "海绵",
+    "透水"
   ]
 }

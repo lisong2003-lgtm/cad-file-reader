@@ -36,6 +36,10 @@ PATTERNS = [
     ("标高数值", re.compile(r'(?<![\d.])[-−]?[1-9]\d{0,3}\.\d{3}(?![\d.])')),
     ("阶段产物名", re.compile(r'阶段[一二三四五六七八九十]{1,4}')),
 ]
+# 算法/规则配置键（比值、阈值等）是代码常量，不是图纸实测值，豁免“结果数值”误报。
+TOLERATED_CONFIG_KEYS = ("min_insert_plant_layer_ratio", "roundish_min_aspect", "max_ring_area_ratio")
+
+
 REDACTIONS = [
     (re.compile(r'/Volumes/[^\s、，）)]*'), '<介质路径>'),
     (re.compile(r'\b[0-9a-f]{16,}\b'), '〈摘要已隐去〉'),
@@ -58,6 +62,8 @@ def scan(files):
                         RUNTIME_VERSION.sub("V",
                         VERSION_TOKEN.sub("V", line)))))
             kinds = [name for name, pattern in PATTERNS if pattern.search(probe)]
+            if "结果数值" in kinds and any(k in line for k in TOLERATED_CONFIG_KEYS):
+                kinds.remove("结果数值")
             if kinds:
                 findings.append((str(path), number, kinds, line.strip()[:120]))
     return findings

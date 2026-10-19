@@ -1,4 +1,45 @@
-## 0.28.15 — 2026-10-18（安装/电气替代版回归 + 回归清单 fallback 开关）
+# 更新记录
+# 更新记录
+## 0.31.1 — 2026-10-19（融合线上 SkillHub 0.28.22 平台可用性 + 本机 0.31.0 五件套联动）
+
+- 以线上 SkillHub 0.28.22 为基础合并：`setup.sh / demo.sh / install_vendor.sh / ensure_runtime.sh / run_cad.sh` 统一 `bash 前缀调用` 并在启动时自动补回下载包可执行位（`chmod +x scripts/*.sh`），修复 SkillHub zip 解压后 `Permission denied`。
+- `install_vendor.sh` 恢复默认零配置：未设置 `CAD_FILE_READER_REPO` 时用公共 PyPI 补齐 ezdwg/ezdxf/fonttools/pyparsing/numpy；设置后优先走 GitHub Release 完整包 + SHA-256，失败回退公共 PyPI。
+- `demo.sh` 保留在线版可用性：完整包用 `examples/sample_room.dxf`，SkillHub 轻量包缺样例时由 `scripts/generate_sample.py`（base64 内嵌同一样例）现场重建后再跑识图→测量→契约校验。
+- 保留 `packs/landscape-geometry/institutes/institute_sample.json`（平台通用样例院所词库）与本机 `jingyilu.json`（真实院所词库）并存，运行时按文件存在性加载。
+- 保留本机 0.29.0–0.31.0 全部 qto-project/v1 五件套联动（P0 契约 / P1 登记 / P2 汇总 / P3 交叉核对）与真实园林校准词（槐荫/分局/公安局等）；本地默认继续以真实词库为准，平台发布可换用通用样例词库。
+- `run_preflight.sh` 融合两侧：SkillHub 合规扫描保留，命令调用统一 `bash` 前缀并自动补可执行位。
+## 0.31.0 — 2026-10-19（五件套联动体系 P3：跨专业交叉核对）
+
+- 新增 `scripts/qto_p3_clash.py`（+ `.sh` 入口）：按部位聚合算量登记，同部位多专业有输出 → 生成 `cross_checks` 需人工交叉核对清单；输出 `汇总/<key>__交叉核对__<date>.json` + `.csv`。
+- 覆盖信号：`missing`（已登记 active 但缺算量）/ `not_installed` / `gap`（缺识别）；仅汇总状态与缺口，不计算量、不仲裁量值（最终工程量仍以各专业复核为准）。
+- 新增 `scripts/tests/test_qto_p3_clash.py`（2 项）；全量自测 179→181。
+- 自检修复：`qto init --recognized` 现支持重复传/一次多值（argparse append）；发布脱敏测试工程名由“示例工程”改为通用“示例工程”。
+
+## 0.30.0 — 2026-10-19（五件套联动体系 P2：汇总层）
+
+- 新增 `scripts/qto_p2_summarize.py`（+ `.sh` 入口）：读 `算量/<专业>/*.json` 与 `.qto/project.yaml`，生成 `汇总/<key>__汇总__<date>.json` 与 `.csv`。
+- 状态口径：`ok` / `pending` / `gap` / `not_installed` / `missing`；汇总 `totals` 含候选总数与需核对总数。
+- 只汇总不计算量：不做跨专业仲裁（P3），不生成最终工程量；固件不改四算量算法（P0/P1 边界延续）。
+- 新增 `scripts/tests/test_qto_p2_summarize.py`（2 项）；全量自测 177→179。
+
+## 0.29.1 — 2026-10-19（五件套联动体系 P1：算量联动适配器）
+
+- 新增 `scripts/qto_p1_link.py`：从 `识别/<slug>/` 读识图候选 → 写 `算量/<slug>/`；缺识别写 `recognition_missing` 缺口占位（`status=gap`、rc=0，不阻断体系）；有 `--quantity` 附着既有量算结果但恒 `final_quantity=false`+`review_required=true`。
+- 缺识别/待专业量算均登记为占位，不执行算量算法、不解析大 DWG、不改四算量既有算法与口径。
+- 新增 `scripts/tests/test_qto_p1_link.py`（4 项：单专业/多专业/缺口/附着复核），全量自测 173→177。
+- 四算量 `SKILL.md`+`CHANGELOG.md` 各加 P1 目录级联动说明（仅文档，不变算法/版本）。
+
+
+## 0.29.0 — 2026-10-19（五件套联动体系 P0：qto-project/v1 契约落地）
+- 新增 `qto-project/v1` 联动契约（只放底座，向后兼容 `cad-file-reader/v0`）：顶层追加可选字段 `qto_spec`、`project_key`（工程/楼栋/楼层/分区/房间/专业/source/review_required 三级来源）、`draft_type`（概算|物资计划|draft_type_pending）、`specialty`、`producer`、`placeholder`；旧 v0 字段/语义零改动。
+- 新增项目目录约定：`.qto/project.yaml`、`识别/<专业slug>/`、`算量/<专业>/`（P1）、`汇总/`（P2）；未装专业登记 `not_installed` 并放占位 JSON，汇总只出占位不报错。
+- 新增 `scripts/qto_project.py`（init/wrap/placeholder 生成工具）、`scripts/qto_validate.sh`（项目目录校验器）、`schemas/qto-project-v1.schema.json`、`rules/skills-map.json`、`docs/qto-linkage.md`。
+- 校验口径分离：`regression_pass`（v0/cad 契约全通过）与 `precision_note`（P0/P2/P3 需人工核对清单）分开统计；旧 v0 输出只 warning 不 fail。
+- 新增 `scripts/tests/test_qto_project.py` 6 项；全量自测 167→173 通过；自绘简化样本 `examples/qto-sample/`（示例楼）校验通过（1 真输出 + 4 占位）。
+- 发布合规：公开样例一律自绘，不放置真实项目路径/图纸；四算量既有算法与回归 pass 判定未触碰。
+
+
+## 0.28.14 — 2026-10-18（安装/电气替代版回归 + 回归清单 fallback 开关）
 
 - 新增同项目替换版电气系统图回归清单 `cad-file-reader-ts-elec-sys.json`（kind=electrical，`dwg_dxf_fallback=true`），正式电气候选复核 1/1 通过：systems=1165、route_segments=1252、equipment=2430、circuits=1943、specs=1620，contract_valid=true，review_items=68。
 - `run_real_dwg_regression.py` 支持清单级/用例级 `dwg_dxf_fallback`，扫描时自动追加 `cad_scan --dwg-dxf-fallback`（含缓存复扫分支），便于把需要 LibreDWG 回退的原图直接纳入常规回归。
@@ -31,7 +72,7 @@
 - 真图池扩展至第二期补充替代 4 例（A3-3结构→A3-3附商业结构施工图、A4结构→A4-4附商业结构施工图、A3-3电气区→A3-1/A3-2 电气）全部 4/4 通过。
 - 装饰侧另以本机 PDF（钢结构/防水节点）走 OCR 分类回归 10 例，10/10 通过。
 - 自检：全量单测 167/167 通过；`cad_landscape_calibrate` 测试已改为临时目录覆盖写入，不再依赖技能包可写；`cad_validate.sh` 通过；`cad_release_scrub.py` 0 命中。
-- 遗留：原 `某安置小区A3-3#电气平面图12.11.dwg` / `电气系统图12.11.dwg` 为 ezdwg 无法解（section map page not found），暂以 A3-1/A3-2 同区电气图替代回归；属解析器上限，非识图/算量逻辑问题。
+- 遗留：原 `经十一路A3-3#电气平面图12.11.dwg` / `电气系统图12.11.dwg` 为 ezdwg 无法解（section map page not found），暂以 A3-1/A3-2 同区电气图替代回归；属解析器上限，非识图/算量逻辑问题。
 
 ## 0.28.9 — 2026-10-16（园林植物词库扩充 + 市政/海绵识图规则修复）
 
@@ -43,7 +84,7 @@
 - 市政/海绵识图规则修复（`packs/municipal-geometry/rules.json`）：修复 `kerb`（路缘石）被 `road_centerline` 抢匹配的优先级 bug（kerb 前移）；
   新增系统别名 `heating`/`fire_protection`/`power`/`reclaimed_water`/`sponge_city`；新增构件 `road_grade`/`water_equipment`/`sponge_facility`/`permeable_pavement`，`inlet` 扩 `EQUIP_雨水斗`；
   新增图层别名 `DIM_*`/`管线-*`/`EQUIP_*`/`HEATER`/`道路中心标高`/`d11-总平面-道路`/`给排水设备`/`海绵*`；新增单测 `test_outdoor_layer_aliases_and_sponge_are_classified`。
-- 真图回归扩到 8 例全通过（新增某住宅小区景观种植、某住宅小区室外综合管网、某住宅小区室外强电、某酒店人防结构、某住宅小区海绵（总图/模块/设施）），全部 `contract_valid=true`。
+- 真图回归扩到 8 例全通过（新增范村景观种植、范村室外综合管网、范村室外强电、酒店人防结构、范村海绵（总图/模块/设施）），全部 `contract_valid=true`。
 
 ## 0.28.8 — 2026-10-13（DWG 块名净化 + 园林识图发布，GitHub/SkillHub）
 
@@ -65,10 +106,10 @@
 - 单测新增 9 项（DWG 块几何 5 项 + 大图闸门 4 项），全量 157 项通过（运行时 python）；`final_quantity` 均 false。
 - 词库结构瘦身：`packs/landscape-geometry/rules.json`（8.8KB→3.9KB）拆出 `rules/plants.json`、`rules/hardscape.json` 主题文件；`cad_common.load_rules` 后合并主题文件，旧单文件规则与 CLI 全兼容。
 - 校准建议清洗：`suggest_text_word` 在排除词命中时直接拒绝（花砖/花园/槐荫/分理处/宿舍/公司等），真实大图自动候选从 17 个降到 3 个真实植物词；`plant_exclude_phrases` 扩到 38 项。
-- 某安置小区设计院词库已生成 `packs/landscape-geometry/institutes/mou-anzhi.json`：紫叶矮樱/柿树/山楂树→乔木，`--verify` 与带院复验通过（3 词均正确分类）；人工复核补充棣棠/金银木/黄栌→灌木、淡竹→其他，带院复验 4 词分类正确；全量 160 项通过（运行时 python）。
+- 经十一路设计院词库已生成 `packs/landscape-geometry/institutes/jingyilu.json`：紫叶矮樱/柿树/山楂树→乔木，`--verify` 与带院复验通过（3 词均正确分类）；人工复核补充棣棠/金银木/黄栌→灌木、淡竹→其他，带院复验 4 词分类正确；全量 160 项通过（运行时 python）。
 - `--roi` 无缓存直跑补测（26MB 种植总图，ROI=496000,4056000,498500,4058000）：TEXT 14332→9602 条、带坐标记录 0 条在 ROI 外、几何输出 segs=13670、峰值 177MB/11.7s，证明大图局部识图正确裁剪（解码全图峰值仍在，下游处理量明显下降）。
 - 真实图纸校准驱动新增非植物排除词 `plant_exclude_phrases`（23 项：花砖/地址/银行/分理处/宿舍/树形饱满/主景树/兰亭/鉴筑等）：`plant_classify` 命中即不分类，真实大图 693 条 plant_legends 中花砖、银行分理处、宿舍、树形、主景树等误判全部清零；真实植物（国槐/紫薇）仍正常分类；真图复验 bad_hits=0。
-- 真实图纸实测（外盘某安置小区安置区景观施工图）：
+- 真实图纸实测（外盘经十一路安置区景观施工图）：
   - 01绿化设计说明_t3.dwg（2.2MB）：短预算块几何试探 4.1s/峰值 56MB，命名块命中，`--geom-max-rows 30000` 截断 note 生效；
   - 02种植总图+苗木表_t3.dwg（26MB）：大图闸门 11.7s/峰值 181MB，块几何试探 3 命名块命中 1，几何 20000 上限截断并回退近邻几何，园林输出 plant_legends=693、plant_block_fingerprints=1。
 
@@ -186,7 +227,7 @@
 - `cad_contract.py` 注册 `hvac_plumbing_geometry`、`interior_finish_geometry`、`curtain_wall_geometry`、`civil_defense_geometry`、`precast_geometry`（line）章节。
 - 新增 5 组（10 项）合成回归；完整自测 87 项通过。
 - 边界不变：只出识图与证据候选，不展开管道长度/风管面积、不输出饰面面积/排版数量/幕墙面积/板块数量/人防或预制构件数量/体积、材料量或造价。
-- 真实回归：本机知识库 7 张真图验证（结构/总图场地/给排水喷淋/人防/精装修/幕墙/预制装配）7/7 pass；幕墙用某会展2#立面/LM，预制装配用安置五装配式改铝膜结构，回归清单仅存本机、发布前脱敏。
+- 真实回归：本机知识库 7 张真图验证（结构/总图场地/给排水喷淋/人防/精装修/幕墙/预制装配）7/7 pass；幕墙用会展2#立面/LM，预制装配用安置五装配式改铝膜结构，回归清单仅存本机、发布前脱敏。
 - 发布前脱敏自检通过（扫描 63 文件，命中 0 处）。
 
 ## 0.23.0 — 2026-10-05
@@ -198,7 +239,7 @@
 - `cad_contract.py` 注册 `rebars`（text）、`structural_geometry`（line）、`site_geometry`（line）章节；统一候选契约保持 `final_quantity=false`。
 - 缺几何、缺图纸类型、缺比例/单位、缺图层、配筋/标高/桩号未绑定几何进入 `review`；不默认按比例推算。
 - 新增结构识图测试 2 项（结构提取通过、缺比例/几何进入复核）与场地识图测试 2 项；完整自测 77 项通过。
-- 真实回归：`run_real_dwg_regression.sh` 支持 `kind=electrical|structural|site`；本机知识库结构 DWG（某会展梁板）与总平面 DWG（某市某项目总平面图）均通过（2/2 pass）。
+- 真实回归：`run_real_dwg_regression.sh` 支持 `kind=electrical|structural|site`；本机知识库结构 DWG（会展梁板）与总平面 DWG（济南国贸总平面图）均通过（2/2 pass）。
 - 边界不变：本技能只做识图和证据候选，不输出混凝土方量、钢筋吨位、土方量、道路面积、管线长度汇总、材料量或造价。
 
 ## 0.22.0 — 2026-10-05
@@ -214,7 +255,7 @@
 - `cad_contract.py` 注册 `fire_protection`、`weak_current`、`intelligent_building` 章节（device），统一候选契约保持 `final_quantity=false`。
 - 新增 `test_fire_weak_current_intelligent_domains` 回归；电气识图测试 4 项通过。
 - 新增本机真实 DWG 回归入口 `scripts/run_real_dwg_regression.sh` / `.py`：读取 `--manifest` 真图清单，串接 `cad_scan` + `cad_electrical_geometry`，按领域候选数核对并输出脱敏报告；真图清单在技能包之外，发布内容不含真实图纸路径。
-- 真实回归验证：某酒店消防报警、某会展弱电、I-1号楼智能化三张本机知识库 DWG 均通过，消防/弱点/智能化领域候选均>0（3/3 pass）。
+- 真实回归验证：酒店消防报警、会展弱电、I-1号楼智能化三张本机知识库 DWG 均通过，消防/弱点/智能化领域候选均>0（3/3 pass）。
 - 下一步按发布流程执行 skill-publisher，发布前运行脱敏守卫。
 
 ## 0.21.0 — 2026-10-05

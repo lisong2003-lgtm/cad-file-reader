@@ -104,6 +104,15 @@ SECTION_KINDS = {
     "structural_geometry": "line",
     # 总图/场地识图
     "site_geometry": "line",
+    # 园林/景观识图
+    "plant_legends": "text",
+    "plant_block_legends": "block",
+    "plant_block_fingerprints": "block",
+    "plant_schedule_links": "text",
+    "paving_closed_areas": "polyline",
+    "green_area_candidates": "polyline",
+    "pdf_geometry_candidates": "polyline",
+    "hardscape": "text",
     # 深化识图引擎（给排水暖通/精装修/幕墙/人防/预制装配）
     "hvac_plumbing_geometry": "line",
     "interior_finish_geometry": "line",

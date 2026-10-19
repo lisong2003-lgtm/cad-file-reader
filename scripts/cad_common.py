@@ -18,10 +18,32 @@ def compact(value: Any, limit: int = 240) -> str:
 
 
 def load_rules(path: Path) -> dict[str, Any]:
+    """加载规则 JSON；若同目录存在 rules/*.json 主题拆分文件则后合并覆盖。
+
+    主题文件命名有序，加载后同名 dict 做浅层合并、list/标量直接覆盖，
+    保持单一 rules.json 兼容旧 CLI。
+    """
     if not path.exists():
         raise FileNotFoundError(f"识图规则不存在：{path}")
     with path.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        rules = json.load(fh)
+    rules_dir = path.parent / "rules"
+    if not rules_dir.is_dir():
+        return rules
+    for jf in sorted(rules_dir.glob("*.json")):
+        try:
+            with jf.open("r", encoding="utf-8") as fh:
+                part = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        for key, val in part.items():
+            if isinstance(val, dict) and isinstance(rules.get(key), dict):
+                merged = dict(rules[key])
+                merged.update(val)
+                rules[key] = merged
+            else:
+                rules[key] = val
+    return rules
 
 
 def pattern_hit(value: str, pattern: Any) -> bool:
