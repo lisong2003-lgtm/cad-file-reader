@@ -94,7 +94,8 @@ def main() -> int:
             item = {"id": cid, "name": case.get("name", cid), "status": "skip", "reason": f"未知识图包:{kind}"}
             results.append(item); continue
         geo_script, out_suffix, summary_keys = PACK_GEO[kind]
-        expect = case.get("expect") or {summary_keys[-1]: 1}
+        expect = case.get("expect") or {}
+        # 无显式 expect 时，缺省门槛=整套识图包至少产出一个领域候选，避免把“该图纸本无此细分域”算成缺陷。
         item = {"id": cid, "name": case.get("name", cid), "kind": kind, "status": "pending", "summary": None, "review_items": None}
         if kind == "pdf":
             pdf_dir = work_root / f"{cid}_pdfocr"
@@ -167,7 +168,11 @@ def main() -> int:
         item["review_items"] = summary.get("review_items")
         contract_errors = validate_contract_payload(payload)
         item["contract_valid"] = not contract_errors
-        missing = {k: summary.get(k, 0) for k, v in (expect or {}).items() if int(summary.get(k, 0)) < int(v)}
+        if expect:
+            missing = {k: summary.get(k, 0) for k, v in expect.items() if int(summary.get(k, 0)) < int(v)}
+        else:
+            low = [k for k in summary_keys if int(summary.get(k, 0)) >= 1]
+            missing = {} if low else {"__no_candidate__": 0}
         if contract_errors:
             item["status"] = "fail"; item["reason"] = f"契约校验失败:{contract_errors[:3]}"
             failed += 1

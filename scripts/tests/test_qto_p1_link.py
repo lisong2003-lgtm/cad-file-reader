@@ -34,7 +34,7 @@ class QtoP1LinkTest(unittest.TestCase):
     def test_single_specialty_writes_own_qty_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_project(root, "示例工程", building="5#楼酒店",
+            init_project(root, "示例工程", building="示例楼栋",
                          recognized=["anzhuang-suanliang"])
             _write_recognition(root, "anzhuang-suanliang")
             res = run(root, "anzhuang-suanliang", when="20260101")
@@ -92,7 +92,7 @@ class QtoP1LinkTest(unittest.TestCase):
     def test_quantity_attach_marks_review_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_project(root, "示例工程", building="5#楼酒店",
+            init_project(root, "示例工程", building="示例楼栋",
                          recognized=["yuanlin-suanliang"])
             _write_recognition(root, "yuanlin-suanliang")
             qty = root / "yuanlin-qty-temp.json"

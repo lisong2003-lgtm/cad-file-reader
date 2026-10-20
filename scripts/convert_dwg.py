@@ -17,6 +17,7 @@ if VENDOR_DIR.is_dir():
 SUPPORTED_SUFFIXES = {".dwg", ".dwt"}
 
 from cad_common import peak_rss_mb
+from cad_preflight import preflight_file
 def start_watchdog(cap_mb: int) -> str:
     try:
         sys.path.insert(0, str(SCRIPT_DIR))
@@ -147,6 +148,16 @@ def main() -> int:
 
     results: list[dict] = []
     for src in files:
+        pf = preflight_file(src)
+        if not pf.get("ok"):
+            results.append({
+                "ok": False,
+                "status": "skipped",
+                "input": str(src),
+                "output": str(resolve_output(src, args.out, len(files) > 1)),
+                "error": pf.get("reason", "快速失败：输入不是可识别的 DWG/DXF"),
+            })
+            continue
         mb = src.stat().st_size / 1048576.0
         out = resolve_output(src, args.out, len(files) > 1)
         if mb > args.max_file_mb and not args.allow_big:

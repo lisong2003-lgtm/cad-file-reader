@@ -115,7 +115,7 @@ scripts/qto_p3_clash.sh --project-dir <项目目录> [--date YYYYMMDD]
 
 - 硬门槛 = 原回归不倒退：四算量与底座的既有真实图回归全 `pass` 才允许 P0 交付通过。
 - `regression_pass` 与 `precision_note` 分开统计，不得混为一谈。
-- self_test（`python3 -m unittest discover -s scripts/tests`）通过。
+- self_test（`bash scripts/self_test.sh`：doctor + 全量 unittest + schema/cad_validate + 样例/坏文件回归 + 可选真图回归）通过。
 - 发布内容只放自绘简化样本（`examples/qto-sample/`），不放真实项目素材。
 
 ## 6. Non-goals（P0 不做）

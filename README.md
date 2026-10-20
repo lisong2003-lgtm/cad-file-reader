@@ -40,6 +40,79 @@ bash scripts/install_vendor.sh   # 默认零配置：自动用公共 PyPI 补齐
 bash scripts/deps_check.sh --minimal
 ```
 
+## 环境体检（doctor，只读）
+
+一条命令看当前机器能直接处理哪些、缺哪些（DXF/DWG/PDF 矢量/扫描 OCR/测量/算量联动
+分别分档为 可用 / 需外部转换 / 需OCR引擎 / 不可用），并把每项缺失的最小修复命令与
+DWG 转换后端说明一并给出。**只读，不自动安装、不联网。**
+
+```bash
+bash scripts/doctor.sh --out-dir .      # 写 doctor-report.json + doctor-report.md 并打印摘要
+bash scripts/doctor.sh --json-only       # 机器可读 JSON 打到 stdout
+bash scripts/doctor.sh --md-only         # 人类可读 Markdown 打到 stdout
+```
+
+- 档 0：当前机器可用/缺失能力分档。
+- 档 1：每项缺失的最小修复命令（优先本技能自带 `scripts/setup.sh`、`install_vendor.sh`、`ensure_runtime.sh`）。
+- 档 2：DWG 缺少 LibreDWG(dwg2dxf)/ODAFileConverter 转换后端时的下一步（可用 `cad_scan.sh --dwg-dxf-fallback` 先试）。
+
+## 统一自测/回归闭环（scripts/self_test.sh）
+
+一条命令把「环境体检 + 全量自测 + schema/契约校验 + 样例与坏文件回归」跑完，
+输出 doctor / self_test / 回归三合一报告（JSON + Markdown）；带 `--manifest` 时
+再串起真实 DWG 回归。
+
+```bash
+bash scripts/self_test.sh                              # 三合一报告写到当前目录
+bash scripts/self_test.sh --manifest 真图清单.json      # 加真实 DWG 回归
+bash scripts/self_test.sh --out-dir /tmp/cad-selftest --report-json r.json
+bash scripts/self_test.sh --json-only --skip-unit      # 快速跑，JSON 打到 stdout
+```
+
+- 第 1 段：`doctor.py` 环境体检（档 0/1/2 能力与最小修复命令）。
+- 第 2 段：`unittest discover` 全量自测（现 205 项）。
+- 第 3 段：`schemas/*.schema.json` 轻量 JSON Schema 校验（随包内置，不依赖
+  jsonschema）对 `examples/qto-sample` 样例做正/负向不变量校验，并用
+  `cad_validate.sh` 校验全部 v0 契约样例。
+- 第 4 段：`examples/sample_room.dxf` 实际 `cad_scan` → contractize →
+  `cad_validate.sh` 契约校验。
+- 第 5 段：坏文件不变量（空文件 / 坏魔数快速失败 <5s）。
+- 第 6 段：可选真实 DWG 回归（`run_real_dwg_regression.py`），缺清单则记
+  `skipped`，不影响其它段结论。
+- 任一非跳过段失败时退出码为 1，禁止发布。
+
+## 批量识图台账（scripts/cad_batch.sh）
+
+按目录批量扫图，输出候选级识图台账 Excel（黄底标出需人工复核行）+ `自检汇总.md`。
+复用现有 `cad_scan` 做单图解析，不新写整套引擎；每张图独立运行，单图失败/缺输入只记入台账，不中断整批。
+
+```bash
+# 批量扫图：默认输出 outdir/识图台账.xlsx + outdir/自检汇总.md
+scripts/cad_batch.sh 图纸目录 --out 输出目录 --glob "*.dwg;*.dxf" --recursive
+
+# 断点续跑：按源文件 SHA-256 跳过已成功图
+scripts/cad_batch.sh 图纸目录 --out 输出目录 --glob "*.dwg;*.dxf" --resume
+
+# 单目录/多文件混合、配缓存
+scripts/cad_batch.sh 图纸A.dwg 图纸目录/ --out 台账 --glob "*.dxf" --recursive --cache-dir /tmp/cad-cache
+```
+
+- Excel `识图台账` sheet：每候选一行，含 `复核原因 / 证据坐标 / 来源文件` 列；`review_required`、置信度<0.5、复核原因非空的行黄底。
+- 每张图一个 `汇总·图名` sheet 与一个 `图纸汇总` sheet：列出 候选人 / 复核人（需复核数）/ 缺口。
+- `自检汇总.md`：逐图列出 可交付 / 需人工复核 / 失败跳过 / 缺输入，并附 sha256 与契约文件路径。
+- 每图契约写入 `outdir/_contract/<图名>.json`（`cad-file-reader/v0`，逐候选 `final_quantity=false`），可继续用 `scripts/cad_validate.sh` 校验。
+
+## 可靠性策略
+
+- **快速失败**：`cad_scan / read_cad / convert_dwg` 先跑 `scripts/cad_preflight.py` 预检。
+  空文件、<1KB、魔数错误（非 AC#### / DXF-SECTION / %PDF-）<5 秒直接跳过并写明原因，不假装转换成功；
+  DWG 版本不在支持列表时报“不支持的 DWG 版本”。
+- **批量跳档**：`cad_batch.sh` 单图失败只写 `自检汇总.md` / `_state.json` 的缺口/失败原因，不中断整批；
+  加密 DWG、不支持版本、超时、内存看门狗终止都会被明确翻译后记录。
+- **PDF 复核截图**：`cad_pdf_ocr.sh --out-dir 输出` 会把可疑 PDF 页/OCR 失败页/低置信区块截图
+  输出到 `输出/_review/<图名>-p<页码>.png`，并生成 `_review/index.json`。可用 `--no-review` 关闭。
+- 保持 `cad-file-reader/v0` 契约不变，`scripts/cad_validate.sh` 校验继续通过。
+
 ## 快速开始（30 秒见结果）
 
 ```bash

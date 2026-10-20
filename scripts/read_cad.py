@@ -19,6 +19,7 @@ DEFAULT_CAP_MB = 4096       # 单进程硬上限（RLIMIT_AS）：超了就 Memo
 DEFAULT_MAX_FILE_MB = 20    # 入口大小闸：超过即拒绝整档解析，改走 scripts/cad_scan.sh 低内存路径（本机图纸 20~75MB 常见）
 
 from cad_common import peak_rss_mb
+from cad_preflight import preflight_file
 def apply_mem_cap(cap_mb: int) -> str:
     """macOS 没有可用的 RLIMIT_AS，改用进程内看门狗（见 mem_guard.py）。"""
     try:
@@ -628,6 +629,15 @@ def main() -> int:
     render_dir = Path(args.render_dir)
     results: list[dict[str, Any]] = []
     for path in files:
+        pf = preflight_file(path)
+        if not pf.get("ok"):
+            results.append({
+                "ok": False,
+                **( _file_meta(path) if path.exists() else {"path": str(path), "file_name": path.name, "size_bytes": 0} ),
+                "error": pf.get("reason", "快速失败：输入不是可识别的 DWG/DXF/PDF"),
+                "hint": "快速失败：不假装转换成功；确认文件未被截断、未改名、不是其它格式后重试",
+            })
+            continue
         size = path.stat().st_size
         mb = size / 1048576.0
         if mb > args.max_file_mb and not args.allow_big:

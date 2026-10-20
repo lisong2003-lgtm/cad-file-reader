@@ -45,6 +45,8 @@ from cad_scan_cache import (
     records_in_roi, segments_in_roi, sheets_in_roi, sheet_bbox, sheet_id,
 )
 
+from cad_preflight import preflight_file
+
 VENDOR = Path.home() / ".codex/skills/cad-file-reader/vendor"
 if VENDOR.is_dir():
     sys.path.insert(0, str(VENDOR))
@@ -1650,14 +1652,21 @@ def main():
     seg_files: list[list] = []
     seg_layers_files: list[list] = []
     sheet_base = 0
+    partial = roi is not None or sheet is not None
 
     for f in files:
         import time
         t0 = time.time()
         log = lambda s: print(f"{f.name}: {s}", file=sys.stderr)
         log("开始")
+        pf = preflight_file(f)
+        if not pf.get("ok"):
+            msg = f"快速失败 - {pf.get('reason')}"
+            notes.append(f"{f.name}: {msg}")
+            log(f"跳过：{msg}")
+            continue
         try:
-            head = f.read_bytes()[:128]
+            head = pf.get("head") or f.read_bytes()[:128]
         except Exception as e:
             notes.append(f"{f.name}: 读取失败 {e}")
             continue
@@ -1716,10 +1725,10 @@ def main():
                     n, recs, layers, meta = [f"DWG 解析失败：{e}（如需可转 DXF）"], [], [], {}
             file_notes = list(n)
             notes += [f"{f.name}: {x}" for x in n]
-            if fmt == "DWG" and (args.dwg_dxf_fallback or os.environ.get("CAD_DWG_DXF_FALLBACK") == "1") and (
+            if fmt == "DWG" and (args.dwg_dxf_fallback or os.environ.get("CAD_DWG_DXF_FALLBACK") == "1" or not recs) and (
                 not recs
                 or any(k in x for x in file_notes for k in (
-                    "解码为空", "疑似编码乱码", "块名疑似乱码", "DWG 解析失败", "section map page not found",
+                    "解码为空", "解码失败", "疑似编码乱码", "块名疑似乱码", "DWG 解析失败", "section map page not found", "section map has no entries",
                 ))
             ):
                 try:

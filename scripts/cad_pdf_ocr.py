@@ -49,6 +49,9 @@ REVIEW_REASONS = [
     "ambiguous_text_binding", "geometry_conflict", "duplicate_candidate",
     "outside_viewport", "incomplete_geometry", "low_confidence_inference",
 ]
+MAX_REVIEW_PAGES_PER_PDF = 20          # 每份 PDF 最多写多少张复核截图，避免刷屏
+LOW_CONF_LINE = 0.40                  # 单行 OCR 低置信阈值
+LOW_CONF_PAGE_AVG = 0.60              # 整页 OCR 平均置信阈值
 SOURCE_FORMAT_MAP = {
     "text_based": "pdf_vector",
     "scanned": "pdf_raster",
@@ -191,6 +194,33 @@ def ocr_page_cached(pdf: Path, page: int, cache_dir: Path, force: bool, digest: 
     cache_dir.mkdir(parents=True, exist_ok=True)
     page_cache.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return lines, {"cache_hit": False}
+
+
+def _review_image_name(pdf: Path, page: int) -> str:
+    stem = re.sub(r"[^A-Za-z0-9_\u4e00-\u9fff-]+", "_", pdf.stem).strip("_. ") or pdf.name
+    return f"{stem}-p{page}.png"
+
+
+def page_review_image(pdf: Path, page: int, review_dir: Path) -> Path | None:
+    """把指定页渲染成 PNG 并保留到 review_dir；失败返回 None（不阻断主流程）。"""
+    try:
+        review_dir.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="cad-pdf-review-") as tmp:
+            img = render_pdf_page(pdf, page, Path(tmp))
+            dest = review_dir / _review_image_name(pdf, page)
+            shutil.copy2(img, dest)
+            return dest
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _mark_up_to(record: dict, cands: list[dict]) -> None:
+    """给一批同页候选批量挂上 review_image，提示去 _review 看原图。"""
+    img = record.get("image") if record else None
+    if not img:
+        return
+    for cand in cands:
+        cand["review_image"] = img
 
 
 def stable_id(source: str, kind: str, page: int, text: str, idx: int) -> str:
@@ -489,13 +519,31 @@ def text_based_candidates(entry: dict, out_dir: Path, source: str, source_format
     return candidates, title_input
 
 
-def scanned_candidates(pdf: Path, entry: dict, source: str, cache_dir: Path, source_format: str, max_workers: int, force: bool, digest: str, selected_pages: set[int] | None = None) -> tuple[list[dict], list[dict], dict]:
-    """扫描页候选：逐页渲染+OCR（线程池并行），带页面级缓存；selected_pages 非空时只处理指定页。"""
+def scanned_candidates(pdf: Path, entry: dict, source: str, cache_dir: Path, source_format: str, max_workers: int, force: bool, digest: str, selected_pages: set[int] | None = None, review_dir: Path | None = None) -> tuple[list[dict], list[dict], dict]:
+    """扫描页候选：逐页渲染+OCR（线程池并行），带页面级缓存；selected_pages 非空时只处理指定页。
+
+    review_dir 非空时，OCR 失败页、无有效文字页、整页低置信页会把原图 PNG 保留到
+    review_dir（同时写入同页候选的 review_image），供人眼或多模态复核。
+    """
     pages = [p for p in (entry.get("ocr_pages") or []) if selected_pages is None or int(p) in selected_pages]
     candidates: list[dict] = []
     title_input: list[dict] = []
     idx = 0
     cache_stats = {"cache_hits": 0, "page_total": len(pages), "selected_pages": sorted(pages)}
+    review_pages: dict[int, dict] = {}
+    page_screenshots = 0
+
+    def save_review(page: int, reason: str) -> str | None:
+        nonlocal page_screenshots
+        if review_dir is None or page_screenshots >= MAX_REVIEW_PAGES_PER_PDF:
+            return None
+        img = page_review_image(pdf, page, review_dir)
+        if img is None:
+            return None
+        page_screenshots += 1
+        rel = f"_review/{img.name}"
+        review_pages[int(page)] = {"page": int(page), "image": rel, "reason": reason, "source": str(pdf)}
+        return rel
 
     def work(page: int):
         try:
@@ -507,39 +555,78 @@ def scanned_candidates(pdf: Path, entry: dict, source: str, cache_dir: Path, sou
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         future_iter = pool.map(work, pages, chunksize=1)
         for page, lines, meta in future_iter:
+            page = int(page)
             if meta and meta.get("cache_hit"):
                 cache_stats["cache_hits"] += 1
             if isinstance(lines, Exception):
-                candidates.append(make_candidate(
+                rel = save_review(page, "OCR 失败")
+                cand = make_candidate(
                     "text", f"[OCR 失败 page {page}]",
-                    [{"source": "local-ocr", "file": str(pdf), "page": int(page), "error": str(lines)}],
-                    "local-ocr", source, int(page), None, 0.0, idx,
+                    [{"source": "local-ocr", "file": str(pdf), "page": page, "error": str(lines)}],
+                    "local-ocr", source, page, None, 0.0, idx,
                     ["low_confidence_inference", "missing_layer", "missing_unit", "missing_scale"],
-                    "扫描页 OCR 失败，需人工查阅原图。",
+                    "扫描页 OCR 失败，需人工查阅原图（_review 内附复核截图）。",
                     source_format,
-                ))
+                )
+                if rel:
+                    cand["review_image"] = rel
+                candidates.append(cand)
                 idx += 1
                 continue
+            page_conf_sum = 0.0
+            page_text_lines = 0
+            low_lines = 0
+            page_cands: list[dict] = []
+            page_title: list[dict] = []
             for line in lines:
                 text = str(line.get("text") or "").strip()
                 if not text:
                     continue
-                conf = float(line.get("conf") or line.get("confidence") or 0.0)
+                try:
+                    conf = float(line.get("conf") or line.get("confidence") or 0.0)
+                except (TypeError, ValueError):
+                    conf = 0.0
                 if conf > 1.0:
                     conf = conf / 100.0
+                page_conf_sum += max(0.0, min(1.0, conf))
+                page_text_lines += 1
+                if conf < LOW_CONF_LINE:
+                    low_lines += 1
                 bbox_px = _norm_bbox([line.get(k, 0.0) for k in ("x0", "y0", "x1", "y1")])
                 bbox = _px_to_pdf_bbox(bbox_px, dpi=200)
-                evidence = [{"source": "local-ocr", "file": str(pdf), "page": int(page), "method": "local-ocr", "dpi": 200, "source_bbox_px": bbox_px, "page_bbox": bbox}]
+                evidence = [{"source": "local-ocr", "file": str(pdf), "page": page, "method": "local-ocr", "dpi": 200, "source_bbox_px": bbox_px, "page_bbox": bbox}]
                 cand = make_candidate(
-                    "text", text, evidence, "local-ocr-pixel", source, int(page), bbox, conf, idx,
+                    "text", text, evidence, "local-ocr-pixel", source, page, bbox, conf, idx,
                     ["missing_layer", "missing_unit", "missing_scale"],
                     "扫描件 OCR 像素级文字候选，bbox 已换算为 PDF 点（dpi200，1in=72pt），无矢量几何/图层/比例，不参与测量，需人工核对。",
                     source_format,
                 )
                 cand["source_bbox_px"] = bbox_px
-                candidates.append(cand)
-                title_input.append({"text": text, "page_index": int(page), "bbox": bbox, "confidence": conf})
+                if conf < LOW_CONF_LINE:
+                    cand.setdefault("review_reasons", [])
+                    if "low_confidence_inference" not in cand["review_reasons"]:
+                        cand["review_reasons"].append("low_confidence_inference")
+                page_cands.append(cand)
+                page_title.append({"text": text, "page_index": page, "bbox": bbox, "confidence": conf})
                 idx += 1
+            if not page_text_lines:
+                rel = save_review(page, "扫描页 OCR 无有效文字")
+            else:
+                avg = page_conf_sum / page_text_lines
+                if avg < LOW_CONF_PAGE_AVG or low_lines > 0:
+                    parts = []
+                    if low_lines:
+                        parts.append(f"整页含 {low_lines} 条低置信(<{int(LOW_CONF_LINE*100)}%)文字")
+                    if avg < LOW_CONF_PAGE_AVG:
+                        parts.append(f"整页平均置信 {avg*100:.0f}% 低于 {int(LOW_CONF_PAGE_AVG*100)}%")
+                    rel = save_review(page, "低置信区块，" + "；".join(parts))
+                else:
+                    rel = None
+            if rel:
+                _mark_up_to(review_pages.get(int(page)), page_cands)
+            candidates.extend(page_cands)
+            title_input.extend(page_title)
+    cache_stats["review_pages"] = review_pages
     return candidates, title_input, cache_stats
 
 
@@ -618,6 +705,9 @@ def main() -> int:
     parser.add_argument("--no-text", action="store_true", help="跳过文本页候选")
     parser.add_argument("--pages", default=None, metavar="1,3-5", help="只处理指定 1-based 页码（逗号/连字符）；默认全部页")
     parser.add_argument("--force", action="store_true", help="忽略两级缓存，重新解析/渲染")
+    parser.add_argument("--review-out", default=None, metavar="DIR",
+                        help="复核截图输出目录（默认 <out-dir>/_review）")
+    parser.add_argument("--no-review", action="store_true", help="不输出 _review 复核截图")
     args = parser.parse_args()
 
     pdfs: list[Path] = []
@@ -635,6 +725,11 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     cache_dir = Path(args.cache_dir) if args.cache_dir else out_dir / "_pdf_cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    review_dir = None
+    if not args.no_review:
+        review_dir = Path(args.review_out) if args.review_out else out_dir / "_review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+    all_review: list[dict] = []
     results = []
     for pdf_file in pdfs:
         pdf_file = pdf_file.resolve()
@@ -665,7 +760,8 @@ def main() -> int:
         if entry.get("ocr_pages"):
             try:
                 scan_cands, scan_title, scan_cache = scanned_candidates(
-                    pdf_file, entry, source, cache_dir, source_format, max(args.workers, 1), args.force, pdf_hash, selected_pages
+                    pdf_file, entry, source, cache_dir, source_format, max(args.workers, 1), args.force, pdf_hash,
+                    selected_pages, review_dir
                 )
                 candidates.extend(scan_cands)
                 title_input.extend(scan_title)
@@ -697,9 +793,21 @@ def main() -> int:
             markdown.append(f"- [page {c.get('page_index','')}] {c.get('text')} (conf={c.get('confidence')})")
             markdown.append(f"  - {c.get('review_notes')}")
         (out_dir / f"{pdf_file.stem}.pdf识图.md").write_text("\n".join(markdown), encoding="utf-8")
+        for rec in (cache_stats.get("review_pages") or {}).values():
+            rec.setdefault("file", source)
+            all_review.append(rec)
         results.append({"file": source, "pdf_type": entry.get("pdf_type"),
                         "source_format": source_format, "candidates": len(candidates),
                         "output": str(out_json), "cache": cache_stats, "error": None})
+
+    if review_dir is not None and all_review:
+        index = {
+            "schema": "cad-file-reader/pdf-ocr/_review/v1",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "out_dir": str(out_dir),
+            "images": all_review,
+        }
+        (review_dir / "index.json").write_text(json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8")
 
     report = {
         "tool": "cad-file-reader-pdf-ocr",
@@ -707,6 +815,8 @@ def main() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "out_dir": str(out_dir),
         "cache_dir": str(cache_dir),
+        "review_images_count": len(all_review),
+        "review_dir": str(review_dir) if review_dir else None,
         "results": results,
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))

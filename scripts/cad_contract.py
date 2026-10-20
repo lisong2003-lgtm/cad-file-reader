@@ -50,6 +50,7 @@ CANDIDATE_KINDS = ("text", "block", "line", "polyline", "route", "room", "device
 SECTION_KINDS = {
     # 描述几何/装饰
     "views": "text",
+    "text_records": "text",
     "rooms": "room",
     "room_schedules": "room",
     "openings": "block",

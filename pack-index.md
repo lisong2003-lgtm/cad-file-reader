@@ -35,6 +35,7 @@
 | 门窗/楼梯/保温/防水识图、门/窗编号/楼梯扶手表/保温层/防水层候选、标高/编号证据 | `packs/doors-windows-stairs-insulation-waterproof/SKILL.md` | `scripts/cad_doors_windows_stairs_insulation_waterproof.sh` |
 | 防火/无障碍/绿建节能识图、防火分区/疏散路线/防火门卷帘/无障碍坡道/绿建/海绵/光伏候选、编号/标高证据 | `packs/fire-prevention-accessibility-green-energy/SKILL.md` | `scripts/cad_fire_prevention_accessibility_green_energy.sh` |
 | 发布前预检（全量自测 → 契约校验 → 脱敏扫描 → 可选真图回归） | `scripts/run_preflight.sh` | 入口脚本 |
+| 统一自测/回归闭环（doctor + 全量 unittest + schema/cad_validate + 样例/坏文件 + 可选真图回归，三合一报告） | `scripts/self_test.sh` | 入口脚本 |
 | 五件套联动 qto-project/v1：项目主键/目录/占位/校验 | `docs/qto-linkage.md` | `scripts/qto_validate.sh` |
 | qto 项目初始化/包装/占位工具 | `docs/qto-linkage.md` | `scripts/qto_project.py` |
 | SkillHub 轻量包安装/样例重建（chmod、PyPI 零配置、generate_sample） | `README.md` | `scripts/setup.sh`、`scripts/install_vendor.sh`、`scripts/generate_sample.py` |

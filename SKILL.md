@@ -2,7 +2,7 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.31.2
+version: 0.31.7
 author: lis
 license: CC-BY-NC-SA-4.0
 description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机分流+本地 OCR。提取图层、文字、块、图框、几何、建筑/结构/总图场地/安装/电气/钢结构/市政/给排水暖通/精装修/幕墙/人防/预制装配/园林景观（苗木图例、乔灌地被候选、铺装闭合环、设计院校准、DWG块名净化与自动转DXF复扫）识图候选、系统拓扑、长度/面积/体积测量候选及规范图集元数据，均保留证据坐标与复核原因。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、材料量、造价或结算量；算量交给专项技能。内置 P0–P5 优化：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
@@ -17,6 +17,7 @@ description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解�
 - 完整包解压即用；SkillHub 轻量包一条命令：`bash scripts/setup.sh`（幂等，先自动补回下载包可执行位，再自动补齐依赖）。
 - **运行时自动自举**：任意 `run_cad.sh` 入口启动时先调 `scripts/ensure_runtime.sh`，检测到 vendor 缺失自动补齐（默认公共 PyPI 零配置安装 ezdwg/ezdxf/fonttools/pyparsing/numpy；设置 `CAD_FILE_READER_REPO=<owner>/<repo>` 时改走 GitHub Release 完整包并做 SHA-256 校验，校验失败回退公共 PyPI；设 `CAD_AUTO_SETUP=0` 关闭并明确报错）；vendor 已存在则不联网、不重复下载。
 - 依赖自检：`bash scripts/deps_check.sh --minimal`；缺 numpy 只影响梁线几何估算，其余功能降级为 review。
+- **环境体检（只读，不自动安装）**：`bash scripts/doctor.sh` 一条命令输出分档结论（档0 当前哪几项可用/缺哪些，档1 每项缺失的最小修复命令，档2 DWG 缺 LibreDWG/ODA 转换后端时的下一步）。默认写 `doctor-report.json` + `doctor-report.md` 到当前目录，stdout 再打一份人类可读摘要；`--json-only` / `--md-only` / `--no-write` 供自动化或自测用。
 - 30 秒样例：`bash scripts/demo.sh`；完整包用内置 `examples/sample_room.dxf`，SkillHub 轻量包若含 `.dxf` 则由 `scripts/generate_sample.py` 现场重建同一样例（跑识图→测量→契约校验）。
 
 ## 执行原则
@@ -27,6 +28,23 @@ description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解�
 - 命令均相对技能根目录执行；输出文件写入当前项目工作目录，不写系统目录。
 - 大图先扫描、按需局部展开；高内存/高 CPU 立即暂停。
 - 首次扫描可用 `--cache-dir` 建立本机证据缓存；同图重复查询命中缓存。缓存只保存识图证据，不保存最终工程量。
+
+## 可靠性策略（快速失败 / 批量跳档 / 复核截图）
+
+- **入口快速失败**：`cad_scan / read_cad / convert_dwg` 先跑 `scripts/cad_preflight.py` 的轻量预检
+  （<5 秒，只读前 4KB，不调解析器）。空文件、<1KB、魔数不是 AC####/DXF-SECTION/%PDF 的头会立即标
+  “快速失败”并跳过，不假装转换成功；DWG 版本不在支持列表时直接报“不支持的 DWG 版本”。
+- **批量不中断**：`cad_batch.sh --out 台账` 对坏图/加密图/不支持版本逐图记录
+  “缺口/失败原因”（`自检汇总.md` 与 `_state.json`），单图失败不影响其它图继续跑。
+  - 加密 DWG（ezdwg 报 `encrypted/password`）记为“加密 DWG：需密码或人工解锁”。
+  - 不支持版本记为“不支持的 DWG 版本”。
+- **超时与内存看门狗**：单图沿用 `--budget` 阶段预算和 `--cap-mb` 内存闸；批量层对整条
+  `cad_scan` 再加硬超时（超时 rc=124），退出码 -9/内存闸关键词被翻译成“内存看门狗终止”，原因写入台账。
+- **PDF 复核截图**：`cad_pdf_ocr.sh --out-dir 输出` 自动把可疑页面截图写到
+  `输出/_review/<图名>-p<页码>.png`，并写 `_review/index.json`（每页原因 + 图片相对路径）。
+  - 触发条件：OCR 失败页、扫描页 OCR 无有效文字、整页平均置信 <60%、出现单行置信 <40% 的低置信区块。
+  - 截图对应的候选项带 `review_image` 字段；`--no-review` 可关闭截图输出。
+- 以上改动保持 `cad-file-reader/v0` 契约不变，`scripts/cad_validate.sh` 校验仍需通过。
 
 ## 统一候选契约（cad-file-reader/v0）
 
@@ -105,9 +123,19 @@ scripts/cad_pdf_ocr.sh 图纸.pdf --force --out-dir 图纸PDF识图
 
 输出为 `*.pdf识图.json`（cad-file-reader/v0 契约）与同名 Markdown；可用 `scripts/cad_validate.sh 输出.json` 校验。公司图纸字节全程本机处理，不上云。
 
-## 发布预检（一条命令）
+## 统一自测/回归闭环与发布预检
 
-改动 Skill 后发布前跑 `scripts/run_preflight.sh`：依次执行全量 self-test、契约样例校验、`cad_release_scrub.py` 脱敏扫描；带真图清单时加 `--manifest <本地真图清单.json>` 跑真实图纸回归。任一环节失败即视为未通过，禁止发布。
+日常/CI 用 `scripts/self_test.sh` 跑“三合一”闭环（doctor 环境体检 → 全量
+unittest → `schemas/*.schema.json` + `cad_validate.sh` 契约校验 → 样例 DXF 回归 →
+坏文件快速失败不变量 → 可选真实 DWG 回归），输出 JSON + Markdown 报告：
+
+```bash
+bash scripts/self_test.sh                                    # 无真图时跑闭环，回归段记 skipped
+bash scripts/self_test.sh --manifest <本地真图清单.json>      # 带真实 DWG 回归
+bash scripts/self_test.sh --out-dir 报告输出目录 --json-only
+```
+
+发布前仍跑 `scripts/run_preflight.sh`：依次执行全量 self-test、契约样例校验、`cad_release_scrub.py` 脱敏扫描；带真图清单时加 `--manifest <本地真图清单.json>` 跑真实图纸回归。任一环节失败即视为未通过，禁止发布（本机自测现 205 项）。
 
 
 
@@ -145,6 +173,24 @@ scripts/cad_scan.sh 图纸.dwg --only 梁,板,柱,墙 --format docx -o 图纸扫
 scripts/cad_scan.sh 图纸.dwg --with-geom --with-geom-layer \
   --cache-dir /tmp/cad-file-reader-cache --sheet 1 --format json -o 图框读取
 ```
+
+## 批量识图台账（scripts/cad_batch.sh）
+
+批量扫图输出候选级台账，复用 `cad_scan` 引擎：
+
+```bash
+scripts/cad_batch.sh 图纸目录 --out 台账 --glob "*.dwg;*.dxf" --recursive
+scripts/cad_batch.sh 图纸目录 --out 台账 --resume        # 按 SHA-256 断点续跑
+scripts/cad_batch.sh 图纸A.dwg 图纸目录 --out 台账 --glob "*.dxf" --cache-dir /tmp/cad-cache
+```
+
+- 输出 `<out>/识图台账.xlsx`：`识图台账` sheet 每候选一行，含 `复核原因 / 证据坐标 / 来源文件` 列，
+  `review_required` / 置信度<0.5 / 复核原因非空的行黄底；每图一个 `汇总·图名` sheet 与整体 `图纸汇总` sheet
+  （候选人 / 复核人 / 缺口）。
+- 输出 `<out>/自检汇总.md`：逐图列出 可交付 / 需人工复核 / 失败跳过 / 缺输入。
+- 单图失败不中断整批；`--resume` 用 `_state.json` 按源文件 SHA-256 跳过已成功图。
+- 每图写入 `_contract/<图名>.json`（cad-file-reader/v0，逐候选 `final_quantity=false`），可 `scripts/cad_validate.sh 校验`。
+- 大图仍走 `cad_scan` 的 `mem_guard`/时间预算；`--budget` 可调单图时间预算。
 
 缓存键使用源文件 SHA-256 和影响证据内容的扫描参数档；`--roi`、`--sheet` 只做查询过滤。ROI 几何使用预归一化 bbox 索引，缓存写入先批量落库、延后建索引。JSON 的 `cache.hits/misses` 记录命中情况。局部结果只返回命中范围内的证据，不混入整图块统计。
 缓存只保存识图证据，不保存最终工程量、扣减、材料量、造价或结算量。

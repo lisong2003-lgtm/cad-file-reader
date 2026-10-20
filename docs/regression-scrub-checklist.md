@@ -20,6 +20,10 @@
 ## 2. 回归执行方式
 
 ```bash
+scripts/self_test.sh --manifest <本地真图清单>.json   # 三合一闭环：doctor + 自测 + 真图回归
+```
+真图回归单跑等价命令：
+```bash
 scripts/run_real_dwg_regression.sh --manifest <本地真图清单>.json --report-json <脱敏报告>.json
 ```
 

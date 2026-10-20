@@ -7,6 +7,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "cad_pdf_ocr.py"
 VALIDATE = ROOT / "scripts" / "cad_validate.py"
+import sys
+from pathlib import Path as _P
+sys.path.insert(0, str(ROOT / "scripts"))
+from cad_pdf_ocr import _review_image_name, build_contract  # noqa: E402
+from cad_contract import validate_contract_payload  # noqa: E402
+
+
 
 
 class CadPdfOcrTest(unittest.TestCase):
@@ -84,10 +91,60 @@ class CadPdfOcrTest(unittest.TestCase):
             cache = report["results"][0].get("cache") or {}
             self.assertTrue(cache.get("file_meta_cached", False))
 
+    def test_review_image_name_and_contract_with_review_image(self):
+        # 第 3 步：_review 截图文件命名 + 带 review_image 字段的候选不破坏 v0 校验
+        name = _review_image_name(_P("/tmp/一层平面图 2019.pdf"), 3)
+        self.assertTrue(name.endswith("-p3.png"))
+        self.assertIn("一层平面图", name)
+        candidates = [{
+            "id": "x1", "kind": "text", "value": None, "unit": None, "layer": None,
+            "block_name": None, "text": "低置信行", "bbox": [0, 0, 5, 5],
+            "evidence": [{"source": "local-ocr", "file": "a.pdf", "page": 3}],
+            "method": "local-ocr-pixel", "confidence": 0.35, "confidence_tier": "review_required",
+            "review_reasons": ["low_confidence_inference"], "review_notes": "低置信",
+            "source_schema": "cad-file-reader/v0", "source_id": "a", "final_quantity": False,
+            "rotation": None, "page_index": 3, "page_bbox": [0, 0, 5, 5],
+            "source_format": "pdf_raster", "discipline_refs": [], "discipline_view_tags": [],
+            "confidence_scores": {"ocr_confidence": 0.35}, "review_image": "_review/stem-p3.png",
+        }]
+        payload = build_contract(candidates, {"pdf_type": "scanned"}, "a.pdf", _P("/tmp/out"), False, "pdf_raster", {}, {"file_meta_cached": True})
+        self.assertEqual(validate_contract_payload(payload), [])
+
+    def test_scanned_candidates_writes_review_screenshots_for_low_confidence(self):
+        # 第 3 步：低置信页触发 _review 截图，并带 review_image 字段
+        import tempfile
+        from unittest import mock
+        from cad_pdf_ocr import scanned_candidates
+        with tempfile.TemporaryDirectory(prefix="cad-pdf-review-test-") as tmp:
+            root = _P(tmp)
+            pdf = root / "scan.pdf"
+            pdf.write_bytes(b"%%PDF-1.4 fake")
+            cache_dir = root / "cache"
+            review_dir = root / "out" / "_review"
+            review_dir.mkdir(parents=True, exist_ok=True)
+            entry = {"ocr_pages": [1]}
+            with mock.patch("cad_pdf_ocr.ocr_page_cached",
+                            return_value=([{"text": "低置信行", "conf": 0.30,
+                                            "x0": 0.0, "y0": 0.0, "x1": 10.0, "y1": 5.0}], {})), \
+                 mock.patch("cad_pdf_ocr.page_review_image",
+                            side_effect=lambda _p, page, rd: (rd / f"scan-p{page}.png").touch() or (rd / f"scan-p{page}.png")):
+                cands, _title, stats = scanned_candidates(
+                    pdf, entry, str(pdf), cache_dir, "pdf_raster", 1, False, "0"*64, None, review_dir
+                )
+            self.assertEqual(len(cands), 1)
+            self.assertEqual(cands[0]["review_image"], "_review/scan-p1.png")
+            self.assertIn("low_confidence_inference", cands[0]["review_reasons"])
+            self.assertIn(1, stats.get("review_pages", {}))
+            self.assertTrue((review_dir / "scan-p1.png").exists())
 
 import sys
 sys.path.insert(0, str(ROOT / "scripts"))
 from cad_pdf_ocr import extract_title_block_layout  # noqa: E402
+
+
+
+
+
 
 
 class CadPdfTitleLayoutTest(unittest.TestCase):
@@ -131,6 +188,8 @@ class CadPdfTitleLayoutTest(unittest.TestCase):
 
 
 class CadPdfPageSelectionTest(unittest.TestCase):
+
+
     def setUp(self):
         import sys
         sys.path.insert(0, str(ROOT / "scripts"))
