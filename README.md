@@ -1,5 +1,8 @@
 # CAD 图纸识图与证据提取（cad-file-reader）
 
+> **[English](./README.en.md) | [中文](./README.md)**
+
+
 本地运行的 CAD **识图与证据提取** Skill：直接解析 DWG/DXF/DWT 与 PDF 图纸，不需要 AutoCAD，全部本机处理、图纸字节不上传。
 
 定位：识图与证据工具，不替代设计审查、清单计价、翻样下料、结算或规范条文解释。

@@ -62,3 +62,9 @@ jobs:
 
       - name: doctor --json-only
         run: python scripts/doctor.py --json-only
+
+      - name: read_cad --lang en --json（i18n 英文输出）
+        run: python scripts/read_cad.py --lang en --json --max-text 5 examples/sample_room.dxf
+
+      - name: doctor --lang en --json-only
+        run: python scripts/doctor.py --lang en --json-only

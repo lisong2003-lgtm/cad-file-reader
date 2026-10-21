@@ -586,26 +586,31 @@ def format_text(result: dict[str, Any]) -> str:
 def main() -> int:
     import pyboot
     pyboot.ensure_utf8_io()
-    parser = argparse.ArgumentParser(description="Read DWG/DXF CAD files and summarize their contents.")
-    parser.add_argument("paths", nargs="+", help="CAD file(s) or folder(s)")
-    parser.add_argument("--json", action="store_true", help="Output JSON instead of text")
-    parser.add_argument("--output", help="Write the summary to this file")
-    parser.add_argument("--max-text", type=int, default=500, help="Maximum text entities to include (default: 500)")
-    parser.add_argument("--render", action="store_true", help="Also render an SVG preview with ezdxf")
-    parser.add_argument("--render-dir", default=".", help="Directory for SVG previews (default: current directory)")
-    parser.add_argument("--recursive", action="store_true", help="Search folders recursively")
+    import i18n
+    raw = sys.argv[1:]
+    lang = i18n.argv_lang(raw)
+    parser = argparse.ArgumentParser(description=i18n.T(lang, "read_desc"))
+    parser.add_argument("paths", nargs="+", help=i18n.T(lang, "paths_help"))
+    parser.add_argument("--json", action="store_true", help=i18n.T(lang, "json_help"))
+    parser.add_argument("--output", help=i18n.T(lang, "output_help"))
+    parser.add_argument("--max-text", type=int, default=500, help=i18n.T(lang, "max_text_help"))
+    parser.add_argument("--render", action="store_true", help=i18n.T(lang, "render_help"))
+    parser.add_argument("--render-dir", default=".", help=i18n.T(lang, "render_dir_help"))
+    parser.add_argument("--recursive", action="store_true", help=i18n.T(lang, "recursive_help"))
     parser.add_argument("--cap-mb", dest="cap_mb", type=int, default=DEFAULT_CAP_MB,
-                        help="单进程内存硬上限 MB（0=不限，默认 4096）")
+                        help=i18n.T(lang, "cap_help"))
     parser.add_argument("--max-file-mb", dest="max_file_mb", type=int, default=DEFAULT_MAX_FILE_MB,
-                        help="入口大小闸：超过就不做整档解析（默认 40）")
+                        help=i18n.T(lang, "max_file_help"))
     parser.add_argument("--allow-big", dest="allow_big", action="store_true",
-                        help="明知很大仍强行整档解析（配合 --cap-mb 使用）")
-    args = parser.parse_args()
+                        help=i18n.T(lang, "allow_big_help"))
+    i18n.add_lang_arg(parser, default=lang)
+    args = parser.parse_args(raw)
+    lang = args.lang
     cap_state = apply_mem_cap(args.cap_mb)
 
     files = _collect_files(args.paths, args.recursive)
     if not files:
-        print("No .dwg, .dxf, or .dwt files found.")
+        print(i18n.T(lang, "no_files_found"))
         return 1
 
     render_dir = Path(args.render_dir)
@@ -615,9 +620,10 @@ def main() -> int:
         if not pf.get("ok"):
             results.append({
                 "ok": False,
+                "status": "error",
                 **( _file_meta(path) if path.exists() else {"path": str(path), "file_name": path.name, "size_bytes": 0} ),
-                "error": pf.get("reason", "快速失败：输入不是可识别的 DWG/DXF/PDF"),
-                "hint": "快速失败：不假装转换成功；确认文件未被截断、未改名、不是其它格式后重试",
+                "error": pf.get("reason") or i18n.T(lang, "preflight_fail"),
+                "hint": i18n.T(lang, "preflight_hint"),
             })
             continue
         size = path.stat().st_size
@@ -625,22 +631,25 @@ def main() -> int:
         if mb > args.max_file_mb and not args.allow_big:
             results.append({
                 "ok": False,
+                "status": "error",
                 **_file_meta(path),
-                "error": f"内存闸：文件 {mb:.0f}MB 超过入口上限 {args.max_file_mb}MB，已拒绝整档解析",
-                "hint": "大图纸请用 scripts/cad_scan.sh（只解文字/图层/块名，低内存）；"
-                        "确需整档解析再加 --allow-big",
+                "error": i18n.T(lang, "file_too_big", mb=mb, max=args.max_file_mb),
+                "hint": i18n.T(lang, "big_hint"),
             })
             continue
         try:
-            results.append(process_file(path, args.max_text, args.render, render_dir))
+            rs = process_file(path, args.max_text, args.render, render_dir)
+            rs.setdefault("status", "ok" if rs.get("ok", True) else "error")
+            results.append(rs)
         except MemoryError:
             results.append({
                 "ok": False,
+                "status": "error",
                 **_file_meta(path),
-                "error": f"内存闸：解析超出硬上限 {args.cap_mb}MB 已中断（当前峰值 {peak_rss_mb()}MB）",
-                "hint": "改用 scripts/cad_scan.sh，或用 --cap-mb 提高上限（别超过物理内存一半）",
+                "error": i18n.T(lang, "memory_cap_error", cap=args.cap_mb, peak=peak_rss_mb()),
+                "hint": i18n.T(lang, "cap_hint"),
             })
-    print(f"[cad内存闸] cap={cap_state} 已用峰值 RSS={peak_rss_mb()}MB", file=sys.stderr)
+    print(i18n.T(lang, "memory_cap_note", cap=cap_state, peak=peak_rss_mb()), file=sys.stderr)
     output: str
     if args.json:
         output = json.dumps(results if len(results) > 1 else results[0], indent=2, ensure_ascii=False)
@@ -651,11 +660,12 @@ def main() -> int:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(output, encoding="utf-8")
-        print(f"Written: {output_path}")
+        print(i18n.T(lang, "written_to", paths=output_path))
     else:
         print(output)
 
     return 0 if all(result.get("ok", False) for result in results) else 2
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

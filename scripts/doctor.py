@@ -450,55 +450,68 @@ def _bullet(cap: dict) -> str:
     return line
 
 
-def render_text(report: dict) -> str:
-    lines = ["[doctor] cad-file-reader 环境分档体检", ""]
+def _t(lang, key, **kw):
+    try:
+        import i18n
+        return i18n.T(lang, key, **kw)
+    except Exception:
+        return kw.get("default", key)
+
+
+def render_text(report: dict, lang: str = "zh") -> str:
+    lines = [_t(lang, "doctor_title"), ""]
     py = report["python"]
-    lines.append(f"Python: {py['version']} ({py['resolved'] or '未找到'})  vendor: {'就位' if py['vendor_ok'] else '缺失'}")
-    pg = report.get('platform', {})
-    lines.append(f"平台提示：{pg.get('os', '-')} · 内存闸 psutil：{'有' if pg.get('memory_guard', {}).get('psutil_ok') else '无（降级为协作式超时）'} · {pg.get('memory_guard', {}).get('hint', '-')}")
+    vendor = _t(lang, "found" if py["vendor_ok"] else "missing")
+    lines.append(_t(lang, "doctor_python", ver=py["version"] or "-", resolved=py["resolved"] or "-", vendor=vendor))
+    pg = report.get("platform", {})
+    guard = _t(lang, "memory_guard_on" if (pg.get("memory_guard") or {}).get("psutil_ok") else "memory_guard_off")
+    lines.append(_t(lang, "doctor_platform", os=pg.get("os", "-"), guard=guard, hint=pg.get("memory_guard", {}).get("hint", "-")))
     lines.append("")
-    lines.append("档 0 · 当前能力")
+    lines.append(_t(lang, "tier0_title"))
     for cap in report["tier0"]["capabilities"].values():
         lines.append(_bullet(cap))
     lines.append("")
-    lines.append("档 1 · 缺失最小修复")
+    lines.append(_t(lang, "tier1_title"))
     for f in report["tier1"]["fixes"]:
         lines.append(f"- {f['label']} [{f['status']}]：{f['command']}")
     lines.append("")
-    lines.append("档 2 · DWG 转换后端")
+    lines.append(_t(lang, "tier2_title"))
     lines.append(f"- {report['tier2']['status']}")
     if report["tier2"]["next_steps"]:
         lines.append(report["tier2"]["next_steps"])
     return "\n".join(lines)
 
 
-def render_md(report: dict) -> str:
-    lines = ["# cad-file-reader 环境体检报告", "",
-             f"- 生成时间：{report['generated_at']}",
-             f"- 技能根：`{report['skill_root']}`",
-             f"- Python：`{report['python'].get('version') or '未找到'}`（resolved：`{report['python'].get('resolved') or '-'}`）",
-             f"- 平台提示：{report.get('platform', {}).get('os', '-')} · 内存闸 psutil：{'有' if report.get('platform', {}).get('memory_guard', {}).get('psutil_ok') else '无（降级为协作式超时）'} · {report.get('platform', {}).get('memory_guard', {}).get('hint', '-')}",
+def render_md(report: dict, lang: str = "zh") -> str:
+    py = report.get("python") or {}
+    pg = report.get("platform") or {}
+    guard = _t(lang, "memory_guard_on" if (pg.get("memory_guard") or {}).get("psutil_ok") else "memory_guard_off")
+    lines = [_t(lang, "md_title"), "",
+             _t(lang, "md_generated", t=report["generated_at"]),
+             _t(lang, "md_skill_root", p=report["skill_root"]),
+             _t(lang, "md_python", p=py.get("version") or "-", r=py.get("resolved") or "-"),
+             _t(lang, "md_platform", os=pg.get("os", "-"), guard=guard, hint=(pg.get("memory_guard") or {}).get("hint", "-")),
              "",
-             "## 档 0 · 当前能力分档", ""]
-    lines.append("| 能力 | 分档 | 说明 | 最小修复 |")
+             _t(lang, "md_tier0"), ""]
+    lines.append(f"| {_t(lang, 'capability')} | {_t(lang, 'tier')} | {_t(lang, 'detail')} | {_t(lang, 'minimal_fix')} |")
     lines.append("|---|---|---|---|")
     for cap in report["tier0"]["capabilities"].values():
         fix = (cap.get("fix") or "").replace("|", "\\|")
         det = (cap.get("detail") or "").replace("|", "\\|")
         lines.append(f"| {cap['label']} | {cap['status']} | {det} | {fix or '—'} |")
-    lines += ["", "## 档 1 · 缺失修复命令", ""]
+    lines += ["", _t(lang, "md_tier1"), ""]
     if report["tier1"]["fixes"]:
         for f in report["tier1"]["fixes"]:
             lines.append(f"- **{f['label']}**（{f['status']}）：`{f['command']}`  · {f['issue']}")
     else:
-        lines.append("无（当前能力都可用）。")
-    lines += ["", "## 档 2 · DWG 转换后端", ""]
-    lines.append(f"- 状态：{report['tier2']['status']}")
+        lines.append(_t(lang, "none_all_ok"))
+    lines += ["", _t(lang, "md_tier2"), ""]
+    lines.append(f"- {_t(lang, 'status')}：{report['tier2']['status']}")
     lines.append(f"- LibreDWG(dwg2dxf)：{'有' if report['tier2']['dwg_conversion_backends']['libredwg_dwg2dxf'] else '无'}")
     lines.append(f"- ODAFileConverter：{'有' if report['tier2']['dwg_conversion_backends']['odafileconverter'] else '无'}")
     if report["tier2"]["next_steps"]:
         lines.append("")
-        lines.append("### 下一步")
+        lines.append(_t(lang, "next_step"))
         lines.append("")
         for ln in report["tier2"]["next_steps"].splitlines():
             lines.append(ln if ln.startswith(("  ", "1)", "2)", "3)", "-")) else f"- {ln}")
@@ -509,25 +522,35 @@ def render_md(report: dict) -> str:
 def main() -> int:
     import pyboot
     pyboot.ensure_utf8_io()
-    ap = argparse.ArgumentParser(description="cad-file-reader 环境分档体检（只读，不安装）")
-    ap.add_argument("--out-dir", default=".", help="输出目录（默认当前目录）")
-    ap.add_argument("--json-out", default=None, help="JSON 报告路径（默认 <out-dir>/doctor-report.json）")
-    ap.add_argument("--md-out", default=None, help="Markdown 报告路径（默认 <out-dir>/doctor-report.md，仅 --skip-md 时关闭）")
-    ap.add_argument("--skip-md", action="store_true", help="不写 Markdown 报告")
-    ap.add_argument("--no-write", action="store_true", help="不写任何文件（供测试/CI 用）")
-    ap.add_argument("--json-only", action="store_true", help="只把 JSON 打到 stdout")
-    ap.add_argument("--md-only", action="store_true", help="只把 Markdown 报告打到 stdout")
-    args = ap.parse_args()
+    import i18n
+    raw = sys.argv[1:]
+    lang = i18n.argv_lang(raw)
+    _t = i18n.T
+    ap = argparse.ArgumentParser(description=_t(lang, "doctor_desc"))
+    ap.add_argument("--out-dir", default=".", help=_t(lang, "doctor_out_dir_help"))
+    ap.add_argument("--json-out", default=None, help=_t(lang, "doctor_json_out_help"))
+    ap.add_argument("--md-out", default=None, help=_t(lang, "doctor_md_out_help"))
+    ap.add_argument("--skip-md", action="store_true", help=_t(lang, "doctor_skip_md_help"))
+    ap.add_argument("--no-write", action="store_true", help=_t(lang, "doctor_no_write_help"))
+    ap.add_argument("--json-only", action="store_true", help=_t(lang, "doctor_json_only_help"))
+    ap.add_argument("--md-only", action="store_true", help=_t(lang, "doctor_md_only_help"))
+    i18n.add_lang_arg(ap, default=lang)
+    args = ap.parse_args(raw)
+    lang = args.lang
+    _t = i18n.T
 
     skill_root = Path(__file__).resolve().parent.parent
     report = build_report(skill_root)
 
     if args.json_only:
-        json.dump(report, sys.stdout, ensure_ascii=False, indent=2)
+        out = dict(report)
+        out["status"] = "ok"
+        out["message"] = _t(lang, "ok")
+        json.dump(out, sys.stdout, ensure_ascii=False, indent=2)
         print()
         return 0
     if args.md_only:
-        print(render_md(report))
+        print(render_md(report, lang))
         return 0
 
     out_dir = Path(args.out_dir)
@@ -544,17 +567,17 @@ def main() -> int:
             json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             written.append(str(json_path))
         except OSError as exc:
-            print(f"⚠️ 写入 JSON 报告失败：{exc}", file=sys.stderr)
+            print(_t(lang, "write_json_fail", exc=exc), file=sys.stderr)
         if not args.skip_md:
             try:
-                md_path.write_text(render_md(report) + "\n", encoding="utf-8")
+                md_path.write_text(render_md(report, lang) + "\n", encoding="utf-8")
                 written.append(str(md_path))
             except OSError as exc:
-                print(f"⚠️ 写入 Markdown 报告失败：{exc}", file=sys.stderr)
+                print(_t(lang, "write_md_fail", exc=exc), file=sys.stderr)
 
-    print(render_text(report))
+    print(render_text(report, lang))
     if written:
-        print("\n已写出：" + "，".join(written))
+        print(_t(lang, "written_to", paths="，".join(written)))
     return 0
 
 
