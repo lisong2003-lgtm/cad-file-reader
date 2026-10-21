@@ -1,4 +1,16 @@
 # 更新记录
+## 0.32.1 — 2026-10-21（跨平台 CI 全绿 + 其他 agent 可调用硬化）
+
+- 跨平台修复（GitHub Actions 三 OS 实测通过）：
+  - UTF-8 自举：全部 40 个含 `def main` 的脚本接入 `pyboot.ensure_utf8_io()`（含 pyboot 自身与 7 个内部 CLI），修 Windows cp1252 中文乱码/无输出。
+  - CI workflow 增加 `PYTHONIOENCODING=utf-8` / `PYTHONUTF8=1`，并新增 `cad_scan examples/sample_room.dxf --format json` 步骤作为 Windows 中文 JSON 防线。
+  - `doctor` 相关测试改 `sys.executable` 调 doctor.py（修远端 100644 无执行位 PermissionError）。
+  - sqlite 连接显式 `close()`（修 Windows 文件锁导致测试清理失败）。
+  - `test_platform_paths.py` 路径断言改 `as_posix()`，并对 PATHEXT 差异做 mock。
+- 三平台 CI 结果（run 39542083329）：macOS / Windows / Ubuntu 全部 success，self_test unit 265 / failures 0 / errors 0；sample_room.dxf 三平台 `text_total=2 / layers=3`；Windows 中文 JSON 可读。
+- 其他 agent 可调用：本技能为“本地 Python 脚本 + CLI 入口 + SKILL.md 指令”，任何能运行 Python 3 并执行命令行的 agent（Codex / DeepSeek 等）均可调用，不依赖单一平台。
+- 发布：GitHub + SkillHub + ClawHub 三平台同步更新到 0.32.1，本机 canonical 保持原版。
+
 ## 0.32.0 — 2026-10-21（跨平台发布收尾：平台支持矩阵 + platforms 字段）
 
 - 新增 `README.md` / `SKILL.md`「平台支持矩阵」：macOS / Windows 10/11 / Linux x86_64 功能表、安装步骤对比、常见问题（Windows 中文输出、psutil 降级、vendor 安装、CI 白名单差异）。

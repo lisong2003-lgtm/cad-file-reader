@@ -2,7 +2,7 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.32.0
+version: 0.32.1
 author: lis
 license: CC-BY-NC-SA-4.0
 description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机分流+本地 OCR。提取图层、文字、块、图框、几何、建筑/结构/总图场地/安装/电气/钢结构/市政/给排水暖通/精装修/幕墙/人防/预制装配/园林景观（苗木图例、乔灌地被候选、铺装闭合环、设计院校准、DWG块名净化与自动转DXF复扫）识图候选、系统拓扑、长度/面积/体积测量候选及规范图集元数据，均保留证据坐标与复核原因。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、材料量、造价或结算量；算量交给专项技能。内置 P0–P5 优化：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
