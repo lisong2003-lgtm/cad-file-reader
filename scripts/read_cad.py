@@ -584,6 +584,8 @@ def format_text(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="Read DWG/DXF CAD files and summarize their contents.")
     parser.add_argument("paths", nargs="+", help="CAD file(s) or folder(s)")
     parser.add_argument("--json", action="store_true", help="Output JSON instead of text")

@@ -46,6 +46,8 @@ def extract(pdf: Path, pages: list[int] | None = None) -> list[dict]:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="矢量 PDF 原生文字坐标提取")
     ap.add_argument("pdf", help="PDF 文件路径")
     ap.add_argument("--pages", default="", help="逗号分隔页号；省略则全部")

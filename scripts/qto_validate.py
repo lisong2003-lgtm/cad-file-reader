@@ -260,6 +260,8 @@ def validate_project(project_dir: Path) -> dict[str, Any]:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="qto-project/v1 项目目录校验")
     ap.add_argument("project_dir", help="项目目录（含 .qto/project.yaml）")
     ap.add_argument("--report-json", help="可选：输出报告 JSON 到文件")

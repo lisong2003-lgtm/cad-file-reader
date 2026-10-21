@@ -173,6 +173,8 @@ def run(project_dir: Path, specialty: str, draft_type: str = "draft_type_pending
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="P1 算量联动适配器（底座 cad-file-reader）")
     ap.add_argument("--project-dir", required=True)
     ap.add_argument("--specialty", required=True, choices=SKILL_SLUGS,

@@ -46,6 +46,26 @@ DEFAULT_PYTHON_NAMES = ("python3", "python", "py")
 REQUIRED_VENDOR_PACKAGES = ("ezdwg", "ezdxf", "fontTools")
 
 
+
+def ensure_utf8_io() -> None:
+    """跨平台中文兜底：stdout/stderr 切 UTF-8，并给子进程设 UTF-8 环境。
+
+    特别解决 Windows cp1252 / 非 UTF-8 locale 下
+    ``json.dump(..., ensure_ascii=False)`` 抛 UnicodeEncodeError 的问题。
+    只读配置，不改变业务逻辑；重复调用安全。
+    """
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for _name in ("stdout", "stderr"):
+        _stream = getattr(sys, _name, None)
+        _reconf = getattr(_stream, "reconfigure", None)
+        if callable(_reconf):
+            try:
+                _reconf(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
 def skill_version() -> str:
     """读取技能版本号：优先 manifest.json，其次 SKILL.md front matter。
 
@@ -212,6 +232,7 @@ def main(argv: list[str] | None = None) -> int:
       --python     仅打印解析到的 Python 解释器路径（vendor 缺失也照常）。
       （无参数）    执行完整自举，vendor 缺失时打印指引并 exit 3。
     """
+    ensure_utf8_io()
     args = list(sys.argv[1:] if argv is None else argv)
 
     if "--version" in args:

@@ -364,6 +364,8 @@ def analyze_file(path: Path, max_layers: int, max_blocks: int, max_instances: in
     return contractize_payload(payload, source=path.name)
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取图层与块语义候选。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
     parser.add_argument("--out-dir", default="语义识图", help="输出目录")

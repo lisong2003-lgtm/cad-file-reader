@@ -190,6 +190,8 @@ def _load_or_new(target: Path) -> dict[str, Any]:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="把新设计院 CAD 详情转成块名+文字词库覆盖。")
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--institute", default="design_a", help="设计院目录名，写入 institutes/<名>.json")

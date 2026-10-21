@@ -70,6 +70,8 @@ def scan(files):
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="+", help="要检查的文件或目录")
     parser.add_argument("--ext", default=".md,.txt,.sh,.json,.toml",

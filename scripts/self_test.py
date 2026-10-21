@@ -207,7 +207,13 @@ def run_unit_tests(python: Path) -> tuple[dict, int]:
     except Exception as exc:
         data = {"ok": False, "error": f"解析 unittest 输出失败: {exc}", "tests_run": 0}
     data["rc"] = proc.returncode
-    data["stderr_tail"] = (proc.stderr or "").strip().splitlines()[-5:]
+    stderr_text = proc.stderr or ""
+    data["stderr_tail"] = stderr_text.strip().splitlines()[-8:]
+    # 保留关键 traceback 摘要，避免 CI 只留最后五行而无法定位失败点
+    data["stderr_trace"] = [
+        ln for ln in stderr_text.splitlines()
+        if ln.startswith(("Traceback", "  File ", "    ")) or ln.startswith(("ERROR:", "FAIL:", "TypeError", "UnicodeEncodeError"))
+    ][:80]
     if data.get("ok") is not True:
         data["ok"] = False
     return data, (0 if data.get("ok") else 1)
@@ -560,6 +566,8 @@ def _md_report(report: dict) -> str:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="cad-file-reader 统一自测/回归闭环")
     ap.add_argument("--manifest", default=None, help="真实 DWG 回归清单 JSON（可选，缺省则跳过回归）")
     ap.add_argument("--out-dir", default=".", help="报告输出目录（默认当前目录）")

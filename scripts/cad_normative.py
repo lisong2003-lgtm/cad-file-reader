@@ -260,6 +260,8 @@ def render_csv(payload: dict[str, Any]) -> str:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="CAD 规范/图集元数据与输入缺口核查")
     ap.add_argument("--scan", required=True, help="cad_scan 输出的 JSON")
     ap.add_argument("--detail", help="cad_scan --detail-json 输出")

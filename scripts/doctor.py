@@ -507,6 +507,8 @@ def render_md(report: dict) -> str:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="cad-file-reader 环境分档体检（只读，不安装）")
     ap.add_argument("--out-dir", default=".", help="输出目录（默认当前目录）")
     ap.add_argument("--json-out", default=None, help="JSON 报告路径（默认 <out-dir>/doctor-report.json）")

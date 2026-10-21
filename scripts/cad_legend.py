@@ -189,6 +189,8 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="按图例词库匹配识别工程图例候选。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
     parser.add_argument("--out-dir", default="图例识图")

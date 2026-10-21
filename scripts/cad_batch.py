@@ -439,6 +439,8 @@ def process_file(path: Path, outdir: Path, budget: float, cache_dir: str | None)
 
 
 def main(argv: list[str] | None = None) -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="按目录批量扫图并输出识图台账（Excel + 自检汇总.md）")
     ap.add_argument("paths", nargs="+", help="输入文件或目录")
     ap.add_argument("--out", default="识图台账", help="输出目录（默认 ./识图台账），写入 识图台账.xlsx、自检汇总.md、_contract/、_detail/、_json/")

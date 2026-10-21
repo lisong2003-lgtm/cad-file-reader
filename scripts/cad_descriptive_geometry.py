@@ -2262,6 +2262,8 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
             )
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取装饰识图中间数据。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
     parser.add_argument("--out-dir", default="描述几何", help="输出目录")

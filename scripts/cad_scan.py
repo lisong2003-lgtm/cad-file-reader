@@ -1537,6 +1537,8 @@ def jsonable(res):
 
 # ---------------------------------------------------------------- main
 def main():
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="低内存 CAD 文字/构件提取（DWG/DXF，免装 CAD 软件）")
     ap.add_argument("--worker", default=None, help=argparse.SUPPRESS)
     ap.add_argument("--worker-path", default=None, help=argparse.SUPPRESS)

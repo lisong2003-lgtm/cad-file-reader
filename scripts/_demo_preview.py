@@ -19,6 +19,8 @@ def walk(c, depth=0):
     return out
 
 def main(path):
+    import pyboot
+    pyboot.ensure_utf8_io()
     with open(path, encoding="utf-8") as f:
         d = json.load(f)
     shown = 0

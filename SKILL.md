@@ -2,7 +2,7 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.31.7
+version: 0.32.0
 author: lis
 license: CC-BY-NC-SA-4.0
 description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解析，PDF 走本机分流+本地 OCR。提取图层、文字、块、图框、几何、建筑/结构/总图场地/安装/电气/钢结构/市政/给排水暖通/精装修/幕墙/人防/预制装配/园林景观（苗木图例、乔灌地被候选、铺装闭合环、设计院校准、DWG块名净化与自动转DXF复扫）识图候选、系统拓扑、长度/面积/体积测量候选及规范图集元数据，均保留证据坐标与复核原因。仅输出识图与测量候选（final_quantity=false），不计算最终工程量、材料量、造价或结算量；算量交给专项技能。内置 P0–P5 优化：统一候选契约/置信度分层、大图缓存与局部解析、图层/块语义、MEP 拓扑增强、图纸对比。
@@ -19,6 +19,26 @@ description: 本地读取 AutoCAD DWG/DXF/DWT/PDF 图纸：DWG/DXF 走流式解�
 - 依赖自检：`bash scripts/deps_check.sh --minimal`；缺 numpy 只影响梁线几何估算，其余功能降级为 review。
 - **环境体检（只读，不自动安装）**：`bash scripts/doctor.sh` 一条命令输出分档结论（档0 当前哪几项可用/缺哪些，档1 每项缺失的最小修复命令，档2 DWG 缺 LibreDWG/ODA 转换后端时的下一步）。默认写 `doctor-report.json` + `doctor-report.md` 到当前目录，stdout 再打一份人类可读摘要；`--json-only` / `--md-only` / `--no-write` 供自动化或自测用。
 - 30 秒样例：`bash scripts/demo.sh`；完整包用内置 `examples/sample_room.dxf`，SkillHub 轻量包若含 `.dxf` 则由 `scripts/generate_sample.py` 现场重建同一样例（跑识图→测量→契约校验）。
+
+## 平台支持矩阵
+
+支持 macOS / Windows 10 及 11 / Linux x86_64，功能一致；差异仅在启动脚本与可选后端：
+macOS/Linux 用 `scripts/*.sh`，Windows 用 `scripts/*.cmd`。三平台 CI 见 `.github/workflows/cad-xplatform.yml`。
+
+| 能力 | macOS | Windows 10/11 | Linux x86_64 |
+|---|---|---|---|
+| DXF / DWT 流式解析 | ✅ | ✅ | ✅ |
+| DWG 流式解析 | ✅ | ✅ | ✅ |
+| DWG→DXF 复扫 | ⚠️ 可选后端 | ⚠️ 可选后端 | ⚠️ 可选后端 |
+| PDF 矢量 / 扫描 OCR | ⚠️ 可选后端 | ⚠️ 可选后端 | ⚠️ 可选后端 |
+| 专业识图候选 | ✅ | ✅ | ✅ |
+| 测量候选 | ✅ | ✅ | ✅ |
+| qto 五件套联动 | ✅ | ✅ | ✅ |
+| 批量台账 Excel | ✅ | ✅ | ✅ |
+| 内存看门狗 | ✅ | ✅（psutil 主路径） | ✅ |
+| self_test / doctor | ✅ | ✅ | ✅ |
+
+平台安装与 FAQ 见 `README.md`“平台支持矩阵”。
 
 ## 执行原则
 

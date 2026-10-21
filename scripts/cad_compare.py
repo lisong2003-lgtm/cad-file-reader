@@ -300,6 +300,8 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
             writer.writerow([row["change_type"], row["object_type"], row["text"], row.get("layer"), row.get("block_name"), row["status"], json.dumps(row["evidence"], ensure_ascii=False)])
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="对比 cad_scan 详情 JSON 的图层/块/文字/几何变化。")
     parser.add_argument("base", help="基准详情 JSON")
     parser.add_argument("target", help="目标详情 JSON")

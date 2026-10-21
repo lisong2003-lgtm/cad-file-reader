@@ -139,6 +139,8 @@ def dry_run():
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="cad-file-reader 跨平台安装器")
     ap.add_argument("--dry-run", action="store_true", help="只打印平台检测与依赖清单")
     ap.add_argument("--force", action="store_true", help="强制重装 vendor")

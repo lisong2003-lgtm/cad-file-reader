@@ -38,6 +38,8 @@ def run(cmd, **kw):
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="真实 DWG 回归")
     ap.add_argument("--manifest", required=True, help="真图清单 JSON")
     ap.add_argument("--scan-dir", help="复用已有 cad_scan 详情 JSON 的目录（含 <id>_detail.json）")

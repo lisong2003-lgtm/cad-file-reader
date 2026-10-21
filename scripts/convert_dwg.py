@@ -86,6 +86,8 @@ def convert_one(src: Path, out: Path, args: argparse.Namespace) -> dict:
     }
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(
         description="Convert DWG/DWT to DXF with vendored ezdwg (no CAD software required)."
     )

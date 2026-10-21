@@ -81,6 +81,8 @@ def _print_usage() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     args = list(sys.argv[1:] if argv is None else argv)
 
     # 自动切到更优解释器后再真正分发（先处理 --list，避免无谓换解释器）。

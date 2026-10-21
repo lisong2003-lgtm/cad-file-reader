@@ -825,6 +825,8 @@ def _display_scope(data: dict[str, Any], key: tuple) -> str:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="CAD 图纸说明与规则解读")
     ap.add_argument("--scan", default=None, help="cad_scan 输出的 JSON")
     ap.add_argument("--detail", default=None, help="cad_scan --detail-json 输出")

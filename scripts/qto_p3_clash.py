@@ -176,6 +176,8 @@ def write_clash(project_dir: Path, clash: dict[str, Any]) -> tuple[Path, Path]:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="qto-project/v1 P3 跨专业交叉核对（只读汇总，不计算量）")
     ap.add_argument("--project-dir", required=True)
     ap.add_argument("--date", default=None, help="YYYYMMDD，默认今天")

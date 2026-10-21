@@ -723,6 +723,8 @@ def build_contract(candidates: list[dict], entry: dict, source: str, out_dir: Pa
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="PDF 图纸识图候选（本机分流 + 本地 OCR）")
     parser.add_argument("inputs", nargs="+", help="PDF 文件或目录")
     parser.add_argument("--out-dir", default="pdf识图", help="输出目录")

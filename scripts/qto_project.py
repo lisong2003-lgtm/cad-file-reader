@@ -435,6 +435,8 @@ def _cli_placeholder(argv: list[str]) -> int:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     if len(sys.argv) < 2:
         print("用法: qto_project init|wrap|placeholder ...", file=sys.stderr)
         return 2

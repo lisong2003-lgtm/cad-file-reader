@@ -23,6 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +55,10 @@ jobs:
       # 自测只跑 examples/公开样例，不跑真图/公司路径。
       - name: self_test --json-only
         run: python scripts/self_test.py --json-only
+
+      # 中文输出/路径复核：三平台都必须能产出 JSON（Windows 小写 cp1252 回归防线）。
+      - name: cad_scan sample_room.dxf --format json
+        run: python scripts/cad_scan.py examples/sample_room.dxf --format json
 
       - name: doctor --json-only
         run: python scripts/doctor.py --json-only

@@ -12,6 +12,8 @@ from cad_contract import validate_contract_file
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="校验 cad-file-reader/v0 交接 JSON")
     parser.add_argument("inputs", nargs="+", help="识图/测量候选 JSON")
     args = parser.parse_args()

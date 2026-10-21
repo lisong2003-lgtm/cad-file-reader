@@ -94,6 +94,48 @@ cad_fire_prevention_accessibility_green_energy / cad_landscape_geometry`）。
 
 这些 .cmd 只做薄转发、不替换现有 `*.sh`；macOS/Linux 继续用 `.sh`。
 
+## 平台支持矩阵
+
+支持 macOS / Windows 10 及 11 / Linux x86_64，功能一致由统一 Python 入口承接；差异仅在启动脚本后缀（macOS/Linux 用 `scripts/*.sh`，Windows 用 `scripts/*.cmd`）与可选后端安装命令。
+
+| 能力 | macOS | Windows 10/11 | Linux x86_64 |
+|---|---|---|---|
+| DXF / DWT 流式解析 | ✅ 直接支持 | ✅ 直接支持 | ✅ 直接支持 |
+| DWG 流式解析（ezdwg） | ✅ 随包/补齐 | ✅ 随包/补齐 | ✅ 随包/补齐 |
+| DWG→DXF 复扫（LibreDWG/ODA） | ⚠️ 可选后端（dwg2dxf/ODAFileConverter） | ⚠️ 可选后端（ODAFileConverter） | ⚠️ 可选后端（dwg2dxf/ODA） |
+| PDF 矢量文字坐标（pdftoppm） | ⚠️ 可选 `poppler` | ⚠️ 可选 `poppler`/conda | ✅ 系统包或 `poppler-utils` |
+| PDF 扫描 OCR（tesseract / ocr_image / pdf-inspector） | ⚠️ 可选 OCR 引擎 | ⚠️ 可选 OCR 引擎 | ⚠️ 可选 OCR 引擎 |
+| 17+1 类专业识图候选 | ✅ | ✅ | ✅ |
+| 测量候选（长度/面积/体积） | ✅ | ✅ | ✅ |
+| qto-project/v1 五件套联动 | ✅ | ✅ | ✅ |
+| 批量识图台账（Excel） | ✅ | ✅ | ✅ |
+| 内存看门狗 | ✅ `resource`+psutil 回退 | ✅ psutil 主路径 | ✅ `resource`+psutil 回退 |
+| 统一自检 `self_test` | ✅ | ✅ | ✅ |
+| 环境体检 `doctor` | ✅ | ✅ | ✅ |
+
+> `⚠️` 表示该平台需要额外安装可选后端才能完整开启对应档位；缺后端时不影响其余能力，`scripts/doctor.cmd|doctor.sh` 会给出该项最小修复命令。三平台 CI（`.github/workflows/cad-xplatform.yml`）在 GitHub Actions 上持续跑 setup→lint→pycompile→self_test→doctor。
+
+### 安装步骤对比
+
+1. **macOS**：`bash scripts/setup.sh`（缺 vendor 时自动补齐）；默认后端 LibreDWG/ODA 可选装。
+2. **Windows 10/11**：PowerShell 执行 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`；日常入口用 `.cmd`。
+3. **Linux x86_64**：`bash scripts/setup_linux.sh`（apt/dnf/yum 自动适配；已有系统依赖可用 `SKIP_APT=1`）。
+
+### 常见问题（FAQ）
+
+- **Q：Windows 命令提示符没有 bash，能用吗？**
+  A：能。Windows 全部提供 `.cmd` 入口（`scripts\cad_scan.cmd` 等），内部统一转发到 `python scripts/run_cad.py`，不需要 Git Bash 或 WSL。
+- **Q：Windows 打印中文 JSON 乱码（cp1252）？**
+  A：入口已切换为 Python + UTF-8；若仍遇终端编码问题，在 `cmd` 执行 `chcp 65001` 或设置 `PYTHONUNBUFFERED=1`/`PYTHONIOENCODING=utf-8`。
+- **Q：三平台 `self_test` 内容一样吗？**
+  A：是同一套脚本与样例，CI 在 ubuntu/windows/macos-latest 各跑一遍；平台噪声（内存峰值、路径分隔符、时间戳）有白名单，核心字段一致。
+- **Q：Linux glibc 或 macOS 架构限制？**
+  A：macOS 支持 Intel 与 Apple Silicon（纯 Python + 可选后端按平台探测）；Linux 面向 x86_64 主流发行版，Python 3.10+。
+- **Q：装不上 psutil 会坏吗？**
+  A：不会。内存看门狗自动降级为协作式超时，并在 doctor 中提示。
+- **Q：完整包自带 vendor 吗？**
+  A：GitHub 完整包与轻量包都**不含** vendor 二进制以规避平台差异；首次使用运行 `scripts/setup.sh`（macOS/Linux）或 `scripts\setup.cmd`（Windows）即可补齐到本包 `vendor/`，可离线校验 SHA-256。
+
 ## 环境体检（doctor，只读）
 
 一条命令看当前机器能直接处理哪些、缺哪些（DXF/DWG/PDF 矢量/扫描 OCR/测量/算量联动

@@ -1014,6 +1014,8 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
             writer.writerow(["review", "", "", row["type"], "", "", "", "", "review", row["reason"]])
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取安装专业识图中间数据。")
     parser.add_argument("inputs", nargs="+", help="cad_scan 生成的 --detail-json 文件")
     parser.add_argument("--out-dir", default="安装识图", help="输出目录")

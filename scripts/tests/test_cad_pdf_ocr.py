@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -18,6 +19,8 @@ from cad_contract import validate_contract_payload  # noqa: E402
 
 class CadPdfOcrTest(unittest.TestCase):
     def _make_text_pdf(self, workdir: Path, name: str = "sample") -> Path:
+        if shutil.which("soffice") is None:
+            self.skipTest("soffice 不可用，跳过 PDF 生成用例")
         txt = workdir / f"{name}.txt"
         txt.write_text("一层平面图\nC30 混凝土\n消防栓 2531\n项目名称：测试工程\n图号：JD-01\n比例：1:100\n", encoding="utf-8")
         pdf = workdir / f"{name}.pdf"

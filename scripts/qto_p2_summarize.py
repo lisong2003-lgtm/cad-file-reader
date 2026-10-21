@@ -200,6 +200,8 @@ def write_summary(project_dir: Path, summary: dict[str, Any]) -> tuple[Path, Pat
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="qto-project/v1 P2 汇总层（只汇总，不计算量）")
     ap.add_argument("--project-dir", required=True, help="项目目录（含 .qto/project.yaml 与 算量/）")
     ap.add_argument("--date", default=None, help="YYYYMMDD，默认今天")

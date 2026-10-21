@@ -638,6 +638,8 @@ def write_csv(payload: dict[str, Any], path: Path) -> None:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="从 CAD 识图 JSON 生成长度/面积/体积测量候选；不输出最终工程量。")
     parser.add_argument("inputs", nargs="+", help="cad_scan detail 或 descriptive/mep/steel/municipal JSON")
     parser.add_argument("--out-dir", default="测量候选", help="输出目录")

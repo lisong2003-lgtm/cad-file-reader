@@ -1,4 +1,12 @@
 # 更新记录
+## 0.32.0 — 2026-10-21（跨平台发布收尾：平台支持矩阵 + platforms 字段）
+
+- 新增 `README.md` / `SKILL.md`「平台支持矩阵」：macOS / Windows 10/11 / Linux x86_64 功能表、安装步骤对比、常见问题（Windows 中文输出、psutil 降级、vendor 安装、CI 白名单差异）。
+- `manifest.json` 新增 `"platforms": ["macos","windows","linux"]`，并把 26 个 `.cmd` Windows 入口加入 `scripts` 清单（共 193 项）；版本同步升 0.32.0。
+- 三平台发布包各自生成（GitHub 完整包 / SkillHub 轻量合规包 / ClawHub 包），随 GitHub Release 附 macOS / Windows / Linux 的 doctor-report 与 self_test 报告。
+- 本机技能正文保持 canonical，不因平台安装差异修改。
+
+
 ## 0.31.7 — 2026-10-20（真图回归缺陷修复：候选门槛 + DWG 空解码自动复扫）
 
 - `run_real_dwg_regression.py`：无显式 expect 时，缺省候选门槛由“最后一个细分域

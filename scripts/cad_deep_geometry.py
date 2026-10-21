@@ -378,6 +378,8 @@ def build_parser():
 
 
 def main():
+    import pyboot
+    pyboot.ensure_utf8_io()
     args = build_parser().parse_args()
     cfg = PACKS[args.pack]
     rules_path = ROOT / cfg["rules"]

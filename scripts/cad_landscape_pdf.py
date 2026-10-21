@@ -160,6 +160,8 @@ def build_detail(payload: dict, src: Path, pdf_segments: list | None = None) -> 
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="PDF → 园林识图候选流水线（可多个文件/目录）")
     ap.add_argument("inputs", nargs="+", help="PDF 文件、cad_pdf_ocr 输出 JSON，或含 PDF 的目录")
     ap.add_argument("--out-dir", default="园林识图pdf", help="输出目录")

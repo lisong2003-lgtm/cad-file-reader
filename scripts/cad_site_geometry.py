@@ -283,6 +283,8 @@ def write_csv(payload, path):
 
 
 def main():
+    import pyboot
+    pyboot.ensure_utf8_io()
     parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取总图/场地识图中间数据。")
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--out-dir", default="场地识图")

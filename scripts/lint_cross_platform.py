@@ -181,6 +181,8 @@ def _vendor_probe(vendor: Path, platform_name: str) -> int:
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("paths", nargs="+", help="要扫描的文件或目录（默认建议 scripts/）")
     ap.add_argument("--skip-dirs", default="vendor,__pycache__,tests,.git",

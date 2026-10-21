@@ -222,6 +222,8 @@ def cache_cleanup(
 
 
 def main() -> int:
+    import pyboot
+    pyboot.ensure_utf8_io()
     ap = argparse.ArgumentParser(description="盘点/清理 cad_scan 证据缓存")
     ap.add_argument("cache_dir")
     ap.add_argument("--cleanup", action="store_true", help="进入清理模式；默认 dry-run")
