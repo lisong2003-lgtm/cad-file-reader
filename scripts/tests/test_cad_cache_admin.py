@@ -60,12 +60,15 @@ class CacheAdminTest(unittest.TestCase):
 
     def legacy(self, name="cad-scan-v1-old.sqlite"):
         path = self.cache / name
-        with sqlite3.connect(path) as conn:
+        conn = sqlite3.connect(path)
+        try:
             conn.execute("CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT)")
             conn.execute("INSERT INTO metadata VALUES('cache_version','1')")
             conn.execute("INSERT INTO metadata VALUES('source_sha256',?)", ("a" * 64,))
             conn.execute("INSERT INTO metadata VALUES('record_count','1')")
             conn.execute("INSERT INTO metadata VALUES('geometry_count','1')")
+        finally:
+            conn.close()
         return path
 
     def temp_file(self, name="writer.tmp"):

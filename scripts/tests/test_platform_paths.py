@@ -67,11 +67,11 @@ class KnownDirsTest(unittest.TestCase):
         darwin = pp.known_dirs("dwg2dxf", "darwin")
         self.assertIn(Path("/opt/homebrew/bin"), darwin)
         linux = pp.known_dirs("dwg2dxf", "linux")
-        self.assertIn("/usr/bin", [str(p) for p in linux])
-        self.assertIn("/usr/local/bin", [str(p) for p in linux])
+        self.assertIn("/usr/bin", [p.as_posix() for p in linux])
+        self.assertIn("/usr/local/bin", [p.as_posix() for p in linux])
 
     def test_oda_linux_contains_opt(self):
-        self.assertTrue(any(str(d).startswith("/opt") for d in pp.known_dirs("ODAFileConverter", "linux")))
+        self.assertTrue(any(d.as_posix().startswith("/opt") for d in pp.known_dirs("ODAFileConverter", "linux")))
 
     def test_oda_win_contains_program_files_and_localappdata(self):
         with mock.patch.dict(os.environ, {
@@ -79,7 +79,7 @@ class KnownDirsTest(unittest.TestCase):
             "LOCALAPPDATA": "C:/Users/t/AppData/Local",
             "USERPROFILE": "C:/Users/t",
         }):
-            joined = "\n".join(sorted(str(d) for d in pp.known_dirs("ODAFileConverter", "win")))
+            joined = "\n".join(sorted(d.as_posix() for d in pp.known_dirs("ODAFileConverter", "win")))
         self.assertIn("C:/Program Files", joined)
         self.assertIn("C:/Users/t/AppData/Local", joined)
 
@@ -88,12 +88,12 @@ class KnownDirsTest(unittest.TestCase):
 
     def test_pdf_venv_uses_bin_for_darwin(self):
         dirs = pp.known_dirs("pdf-inspector-python", "darwin")
-        self.assertTrue(all(str(d).endswith("/.venv/bin") for d in dirs))
+        self.assertTrue(all(d.as_posix().endswith("/.venv/bin") for d in dirs))
 
     def test_pdf_venv_uses_scripts_for_win(self):
         with mock.patch.dict(os.environ, {"USERPROFILE": "C:/Users/t"}):
             dirs = pp.known_dirs("pdf-inspector-python", "win")
-        self.assertTrue(all(str(d).endswith("/.venv/Scripts") for d in dirs))
+        self.assertTrue(all(d.as_posix().endswith("/.venv/Scripts") for d in dirs))
 
     def test_no_hardcoded_users_or_local_venv_bin(self):
         source = Path(__file__).resolve().parents[1] / "platform_paths.py"
@@ -166,7 +166,9 @@ class FindToolPathPriorityTest(unittest.TestCase):
     """PATH 必须优先于平台表与 extra_dirs。"""
 
     def test_path_wins_over_extra_dir(self):
-        with tempfile.TemporaryDirectory(prefix="cad-pp-") as td:
+        # 本用例模拟 darwin/linux 的执行位判定；Windows runner 上无 POSIX 执行位，
+        # 因此 mock 掉 _is_executable_file，专测 PATH > extra_dirs 的优先级逻辑。
+        with mock.patch.object(pp, "_is_executable_file", return_value=True),                 tempfile.TemporaryDirectory(prefix="cad-pp-") as td:
             pathdir = Path(td) / "PATH_ONLY"
             pathdir.mkdir(parents=True, exist_ok=True)
             path_tool = _write_file(pathdir / "oda_prefer_path", exec_bit=True)

@@ -143,7 +143,8 @@ class CadScanCacheTest(unittest.TestCase):
             roi=(-100.0, -100.0, 1000.0, 1000.0),
         )
         self.assertEqual(loaded["segs"], [SEGS[0]])
-        with sqlite3.connect(path) as conn:
+        conn = sqlite3.connect(path)
+        try:
             row = conn.execute(
                 "SELECT xmin, ymin, xmax, ymax FROM geometry "
                 "WHERE x1=5000.0 AND y1=5000.0"
@@ -154,6 +155,8 @@ class CadScanCacheTest(unittest.TestCase):
                 "WHERE xmin <= 1000.0 AND xmax >= -100.0 "
                 "AND ymin <= 1000.0 AND ymax >= -100.0"
             ).fetchall()))
+        finally:
+            conn.close()
         self.assertIn("geometry_bbox", plan)
 
     def test_invalid_geometry_prevents_cache_write(self):
