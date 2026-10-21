@@ -321,7 +321,7 @@ class PlantExcludePhraseTests(unittest.TestCase):
         from cad_common import load_rules
         from cad_landscape_geometry import plant_classify
         rules = load_rules(SKILL_DIR / "packs/landscape-geometry/rules.json")
-        for txt in ("花砖", "地址：示例市示例路…", "示例银行示例支行",
+        for txt in ("花砖", "地址：山东省济南…", "建设银行济南槐荫支行阳光新城分理处",
                     "树形饱满，舒展", "主景树,分枝点2.5-3.0m", "黄河路桥宿舍"):
             self.assertEqual(plant_classify(txt, rules), ("", ""), txt)
         # 真实植物仍命中

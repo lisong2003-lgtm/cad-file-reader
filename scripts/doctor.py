@@ -25,9 +25,12 @@ import datetime
 import importlib.util
 import json
 import os
+import platform
 import shutil
 import sys
 from pathlib import Path
+
+import platform_paths
 
 REPORT_JSON = "doctor-report.json"
 REPORT_MD = "doctor-report.md"
@@ -36,6 +39,64 @@ STATUS_CONVERT = "需外部转换"
 STATUS_OCR = "需OCR引擎"
 STATUS_NONE = "不可用"
 STATUSES = {STATUS_OK, STATUS_CONVERT, STATUS_OCR, STATUS_NONE}
+
+
+def _norm_platform(hint: str | None = None) -> str:
+    """把 ``darwin`` / ``win`` / ``linux`` 归一化（供 fix 分支与 os 字段）。"""
+    return platform_paths.normalize_platform(hint)
+
+
+def _fix_templates(platform_key: str) -> dict[str, str]:
+    """按平台返回安装/修复命令模板。
+
+    - darwin：保留 brew；
+    - linux：apt-get / dnf / yum 二选一（命令内注明）;
+    - win：winget / choco / 官方下载页。
+    """
+    if platform_key == "win":
+        return {
+            "setup": "powershell -ExecutionPolicy Bypass -File scripts/setup_windows.ps1",
+            "vendor": "powershell -ExecutionPolicy Bypass -File scripts/setup_windows.ps1",
+            "libredwg": ("winget install --id=ODA.FileConverter   # Windows 无官方 LibreDWG 包，用 ODAFileConverter 兜底；"
+                         "或 choco install oda-file-converter；官方下载页 https://www.opendesign.com/guestfiles/oda_file_converter"),
+            "poppler": ("winget install --id=oschwartz10692.Poppler   # 或 choco install poppler；"
+                        "官方下载页 https://github.com/oschwartz10612/poppler-windows/releases"),
+            "image_ocr": "codex skill install image-ocr",
+            "pdf_inspector": "codex skill install pdf-inspector",
+        }
+    if platform_key == "linux":
+        return {
+            "setup": "bash scripts/setup_linux.sh",
+            "vendor": "bash scripts/install_vendor.sh",
+            "libredwg": ("sudo apt-get install -y libredwg-tools   # Debian/Ubuntu；"
+                         "Fedora/RHEL/SUSE 用 sudo dnf install -y libredwg-tools"),
+            "poppler": ("sudo apt-get install -y poppler-utils   # Debian/Ubuntu；"
+                        "Fedora/RHEL/SUSE 用 sudo dnf install -y poppler-utils"),
+            "image_ocr": "codex skill install image-ocr",
+            "pdf_inspector": "codex skill install pdf-inspector",
+        }
+    return {
+        "setup": "bash scripts/setup.sh",
+        "vendor": "bash scripts/install_vendor.sh",
+        "libredwg": "brew install libredwg",
+        "poppler": "brew install poppler",
+        "image_ocr": "codex skill install image-ocr",
+        "pdf_inspector": "codex skill install pdf-inspector",
+    }
+
+
+def _make_fix(cap_id: str, label: str, status: str, detail: str,
+              command: str, suggest: str = "") -> dict:
+    """构造档 1 单条修复（含平台建议字段，供 --json-only 消费）。"""
+    return {
+        "capability": cap_id,
+        "label": label,
+        "status": status,
+        "issue": detail,
+        "command": command,
+        "suggest": suggest,
+        "note": "",
+    }
 
 # 与本技能既有 python 自举保持一致（deps_check.sh / run_cad.sh / setup.sh）
 _RUNTIME_CANDIDATES = [
@@ -134,7 +195,9 @@ def calc_python_version(python: Path) -> str:
         return str(python)
 
 
-def build_report(skill_root: Path) -> dict:
+def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
+    plat = _norm_platform(platform_hint)
+    fix_tpl = _fix_templates(plat)
     python = find_python()
     vendor = skill_root / "vendor"
     vendor_ok = bool(
@@ -154,16 +217,13 @@ def build_report(skill_root: Path) -> dict:
     ezdxf_ok = probes.get("ezdxf", False) or spec_available("ezdxf", vendor)
     numpy_ok = probes.get("numpy", False) or spec_available("numpy", vendor)
     font_tools_ok = probes.get("fontTools", False) or spec_available("fontTools", vendor)
+    psutil_ok = bool(importlib.util.find_spec("psutil")) or spec_available("psutil", vendor)
 
-    # 外部后端探测（延续 read_cad.py / cad_pdf_ocr.py 的常见路径）
+    # 外部后端探测：统一走 platform_paths（dwg2dxf/ODA/pdftoppm/tesseract/ocr/pdf-inspector）
     home = Path.home()
-    dwg2dxf = find_exec("dwg2dxf", extra_dirs=[
-        home / ".codex" / "bin",
-        Path("/opt/homebrew/bin"),
-        Path("/usr/local/bin"),
-        Path("/tmp/libredwg_install/bin"),
-    ])
-    oda = find_exec("ODAFileConverter")
+    dwg2dxf = platform_paths.find_tool("dwg2dxf", platform_hint=platform_hint)
+    oda = platform_paths.find_tool("ODAFileConverter", platform_hint=platform_hint)
+    tesseract = platform_paths.find_tool("tesseract", platform_hint=platform_hint)
 
     pdf_route = None
     for cand in [
@@ -175,20 +235,23 @@ def build_report(skill_root: Path) -> dict:
         if p:
             pdf_route = p
             break
-    pdf_venv = _singular(str(Path(os.environ.get("PDF_INSPECTOR_VENV", "")))) or \
-        (home / ".codex" / "skills" / "pdf-inspector" / ".venv" / "bin" / "python" if
-         (home / ".codex" / "skills" / "pdf-inspector" / ".venv" / "bin" / "python").is_file() else None)
+    pdf_venv = _singular(str(Path(os.environ.get("PDF_INSPECTOR_VENV", ""))))
+    if not pdf_venv:
+        pdf_venv = _singular(platform_paths.find_tool("pdf-inspector-python", platform_hint=platform_hint) or "")
     pdf_py_ok = bool(python) or bool(pdf_venv)
 
-    pdftoppm = find_exec("pdftoppm", extra_dirs=[
-        Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "bin" / "override",
-    ])
+    pdftoppm = platform_paths.find_tool(
+        "pdftoppm",
+        extra_dirs=[Path.home() / ".cache" / "codex-runtimes" / "codex-primary-runtime"
+                    / "dependencies" / "bin" / "override"],
+        platform_hint=platform_hint,
+    )
     ocr_image = None
-    for cand in [Path(os.environ.get("OCR_IMAGE", "")), home / ".codex" / "bin" / "ocr_image"]:
-        p = _singular(str(cand)) if cand else None
-        if p:
-            ocr_image = p
-            break
+    env_ocr = os.environ.get("OCR_IMAGE", "").strip()
+    if env_ocr:
+        ocr_image = _singular(env_ocr)
+    if not ocr_image:
+        ocr_image = _singular(platform_paths.find_tool("ocr_image", platform_hint=platform_hint) or "")
     image_ocr_skill = home / ".codex" / "skills" / "image-ocr"
     tessdata = home / ".cache" / "tessdata"
 
@@ -205,7 +268,7 @@ def build_report(skill_root: Path) -> dict:
                        "detail": "vendored ezdxf/fontTools 可用，可直接流式扫描并做几何候选", "fix": ""}
     else:
         caps["dxf"] = {"label": "DXF", "status": STATUS_NONE, "detail": "缺 vendored ezdxf/fontTools（文字扫描不受影响，几何会降级）",
-                       "fix": "bash scripts/setup.sh"}
+                       "fix": fix_tpl["setup"]}
 
     # ---- DWG（直读 + 转换后端分开看） ----
     fixes_dwg: list[str] = []
@@ -218,13 +281,13 @@ def build_report(skill_root: Path) -> dict:
     elif vendor_ok and not ezdwg_ok:
         caps["dwg"] = {"label": "DWG/DWT", "status": STATUS_CONVERT,
                        "detail": "ezdwg C 扩展与当前解释器不匹配；cad_scan/read_cad 会自动尝试换解释器，仍不行则走 DWG→DXF 回退",
-                       "fix": "brew install libredwg   # 之后用 cad_scan.sh --dwg-dxf-fallback 复扫（或 setup.sh 先恢复 vendor）"}
+                       "fix": fix_tpl["libredwg"] + "   # 之后用 cad_scan.sh --dwg-dxf-fallback 复扫（或先恢复 vendor）"}
     elif not vendor_ok:
         caps["dwg"] = {"label": "DWG/DWT", "status": STATUS_NONE,
-                       "detail": "vendored 解析库缺失", "fix": "bash scripts/setup.sh"}
+                       "detail": "vendored 解析库缺失", "fix": fix_tpl["setup"]}
     else:
         caps["dwg"] = {"label": "DWG/DWT", "status": STATUS_NONE, "detail": "未知原因（请跑 bash scripts/deps_check.sh --minimal 复核）",
-                       "fix": "bash scripts/setup.sh"}
+                       "fix": fix_tpl["setup"]}
 
     # ---- PDF 矢量 ----
     if pdf_route and pdf_py_ok:
@@ -232,10 +295,10 @@ def build_report(skill_root: Path) -> dict:
                               "detail": f"pdf-inspector 路由存在（{pdf_route}），原生文字坐标走本机分流", "fix": ""}
     elif pdf_route and not pdf_py_ok:
         caps["pdf_vector"] = {"label": "PDF 矢量", "status": STATUS_NONE,
-                              "detail": "找到 pdf_route.py 但缺可执行 Python", "fix": "bash scripts/setup.sh 后重试"}
+                              "detail": "找到 pdf_route.py 但缺可执行 Python", "fix": fix_tpl["setup"] + " 后重试"}
     else:
         caps["pdf_vector"] = {"label": "PDF 矢量", "status": STATUS_NONE,
-                              "detail": "缺 pdf-inspector 技能（pdf_route.py 不存在）", "fix": "安装 pdf-inspector 技能（codex skill install pdf-inspector，或重装 pdf-inspector）"}
+                              "detail": "缺 pdf-inspector 技能（pdf_route.py 不存在）", "fix": fix_tpl["pdf_inspector"] + "（或重建 ~/.codex/skills/pdf-inspector）"}
 
     # ---- PDF 扫描 OCR ----
     ocr_engine_ok = bool(ocr_image) and image_ocr_skill.is_dir()
@@ -249,15 +312,15 @@ def build_report(skill_root: Path) -> dict:
     elif pdftoppm and not ocr_engine_ok:
         caps["pdf_raster_ocr"] = {"label": "PDF 扫描/混合 OCR", "status": STATUS_OCR,
                                   "detail": "缺 image-ocr / ocr_image 引擎，扫描页无法本地 OCR",
-                                  "fix": "codex skill install image-ocr   # 或确认 image-ocr 技能脚本在 PATH"}
+                                  "fix": fix_tpl["image_ocr"] + "   # 或确认 ~/.codex/skills/image-ocr/scripts/ocr_image 在 PATH"}
     elif not pdftoppm and ocr_engine_ok:
         caps["pdf_raster_ocr"] = {"label": "PDF 扫描/混合 OCR", "status": STATUS_CONVERT,
                                   "detail": "缺 pdftoppm（Poppler），PDF 无法渲染成像素页",
-                                  "fix": "brew install poppler   # 或配置 Codex 运行时自带 override/pdftoppm 到 PATH"}
+                                  "fix": fix_tpl["poppler"] + "   # 或配置 Codex 运行时自带 override/pdftoppm 到 PATH"}
     else:
         caps["pdf_raster_ocr"] = {"label": "PDF 扫描/混合 OCR", "status": STATUS_OCR,
                                   "detail": "缺 pdftoppm 且缺 image-ocr，扫描/混合页 OCR 不可用",
-                                  "fix": "brew install poppler && codex skill install image-ocr"}
+                                  "fix": fix_tpl["poppler"] + " && " + fix_tpl["image_ocr"]}
 
     # ---- 测量候选 ----
     if python is None:
@@ -268,30 +331,32 @@ def build_report(skill_root: Path) -> dict:
     elif ezdxf_ok and not numpy_ok:
         caps["measure"] = {"label": "长度/面积/体积测量候选", "status": STATUS_NONE,
                            "detail": "缺 numpy（只影响测量/梁线几何估算；DXF/DWG 文字图层仍可用）",
-                           "fix": "bash scripts/install_vendor.sh   # 会把 numpy、ezdwg、ezdxf、fontTools 装进 vendor/"}
+                           "fix": fix_tpl["vendor"] + "   # 会把 numpy、ezdwg、ezdxf、fontTools 装进 vendor/"}
     else:
         caps["measure"] = {"label": "长度/面积/体积测量候选", "status": STATUS_NONE, "detail": "缺 vendored ezdxf/fontTools/numpy",
-                           "fix": "bash scripts/setup.sh"}
+                           "fix": fix_tpl["setup"]}
 
     # ---- 算量联动 ----
     qto_ok = qto_project.is_file() and qto_validate.is_file()
     caps["qto_linkage"] = {"label": "算量联动 (qto-project/v1)", "status": STATUS_OK if qto_ok else STATUS_NONE,
                            "detail": "qto init/wrap/validate 可用，五件套登记联动手册齐全" if qto_ok else "缺 qto_project.py/qto_validate.sh，可能下载包不完整",
-                           "fix": "" if qto_ok else "bash scripts/setup.sh   # 或重下完整包"}
+                           "fix": "" if qto_ok else fix_tpl["setup"] + "   # 或重下完整包"}
 
-    # ---- 档 1 修复清单 ----
+    # ---- 档 1 修复清单（每条带平台专属 command + 跨平台 suggest） ----
+    suggestions = {
+        "dxf": "三平台通用：先跑本技能安装脚本；非 macOS 请用 scripts/setup_* 对应平台脚本。",
+        "dwg": "Windows 建议 ODAFileConverter（winget/choco/官方下载页）；Linux 建议 libredwg-tools（apt/dnf/yum）；macOS 用 brew install libredwg。",
+        "pdf_vector": "pdf-inspector venv：Windows 在 Scripts\\python.exe，Linux/macOS 在 .venv/bin/python；找不到就重建技能。",
+        "pdf_raster_ocr": "Poppler：win 用 winget/choco/官方下载页；linux 用 poppler-utils（apt/dnf）；macOS 用 brew install poppler。",
+        "measure": "缺 numpy 也可 pip 装进 vendor：python3 -m pip install --target vendor numpy。",
+        "qto_linkage": "检查下载包完整性，或重下完整包后运行对应平台 setup。",
+    }
     fixes: list[dict] = []
     for cap_id, cap in caps.items():
         if cap["status"] == STATUS_OK or not cap.get("fix"):
             continue
-        fixes.append({
-            "capability": cap_id,
-            "label": cap["label"],
-            "status": cap["status"],
-            "issue": cap["detail"],
-            "command": cap["fix"],
-            "note": "",
-        })
+        fixes.append(_make_fix(cap_id, cap["label"], cap["status"], cap["detail"],
+                               cap["fix"], suggestions.get(cap_id, "")))
     # 去重相同 command 的条目（vendor/setup 类）
     seen_cmd: set[str] = set()
     deduped: list[dict] = []
@@ -309,13 +374,32 @@ def build_report(skill_root: Path) -> dict:
         "odafileconverter": bool(oda),
     }
     if not (dwg_backends["libredwg_dwg2dxf"] or dwg_backends["odafileconverter"]):
-        dwg_next = (
-            "当前机器没有检出 LibreDWG(dwg2dxf) 或 ODAFileConverter。下一步：\n"
-            "  1) 首选安装 LibreDWG：brew install libredwg（装到 /opt/homebrew/bin/dwg2dxf 后会被自动发现）；\n"
-            "  2) 或安装 ODAFileConverter（放到 PATH）后 read_cad/cad_scan 会自动走 ODA 转换；\n"
-            "  3) 临时规避：用 CAD 软件把 DWG 另存为 DXF 再扫描，或用 cad_scan.sh 图纸.dwg --dwg-dxf-fallback 先试一次；\n"
-            "  说明：本机 ezdwg 只能直读能解析的部分 DWG；遇到 unsupported DWG version / section map 报错时必须加转换后端。"
-        )
+        if plat == "win":
+            dwg_next = (
+                "当前机器没有检出 ODAFileConverter。下一步：\n"
+                "  1) 首选安装 ODAFileConverter：winget install --id=ODA.FileConverter（或 choco install oda-file-converter；"
+                "官方下载页 https://www.opendesign.com/guestfiles/oda_file_converter）；\n"
+                "  2) 装好后把 ODAFileConverter 放进 PATH，read_cad/cad_scan 会自动走 ODA 转换；\n"
+                "  3) 临时规避：用 CAD 软件把 DWG 另存为 DXF 再扫描，或用 cad_scan.sh 图纸.dwg --dwg-dxf-fallback 先试一次；\n"
+                "  说明：Windows 没有官方 LibreDWG 包，转换后端以 ODAFileConverter 为准。"
+            )
+        elif plat == "linux":
+            dwg_next = (
+                "当前机器没有检出 LibreDWG(dwg2dxf) 或 ODAFileConverter。下一步：\n"
+                "  1) 首选安装 LibreDWG：sudo apt-get install -y libredwg-tools（Debian/Ubuntu；"
+                "Fedora/RHEL/SUSE 用 sudo dnf install -y libredwg-tools）；\n"
+                "  2) 或安装 ODAFileConverter（放到 PATH）后 read_cad/cad_scan 会自动走 ODA 转换；\n"
+                "  3) 临时规避：用 CAD 软件把 DWG 另存为 DXF 再扫描，或用 cad_scan.sh 图纸.dwg --dwg-dxf-fallback 先试一次；\n"
+                "  说明：ezdwg 只能直读能解析的部分 DWG；遇到 unsupported DWG version / section map 报错时必须加转换后端。"
+            )
+        else:
+            dwg_next = (
+                "当前机器没有检出 LibreDWG(dwg2dxf) 或 ODAFileConverter。下一步：\n"
+                "  1) 首选安装 LibreDWG：brew install libredwg（装到 /opt/homebrew/bin/dwg2dxf 后会被自动发现）；\n"
+                "  2) 或安装 ODAFileConverter（放到 PATH）后 read_cad/cad_scan 会自动走 ODA 转换；\n"
+                "  3) 临时规避：用 CAD 软件把 DWG 另存为 DXF 再扫描，或用 cad_scan.sh 图纸.dwg --dwg-dxf-fallback 先试一次；\n"
+                "  说明：本机 ezdwg 只能直读能解析的部分 DWG；遇到 unsupported DWG version / section map 报错时必须加转换后端。"
+            )
         dwg_tier2_status = "缺少转换后端"
     else:
         dwg_next = None
@@ -326,11 +410,19 @@ def build_report(skill_root: Path) -> dict:
         "schema": "cad-file-reader/doctor-v1",
         "generated_at": datetime.datetime.now(datetime.timezone.utc).astimezone().isoformat(timespec="seconds"),
         "skill_root": str(skill_root),
+        "os": plat,
+        "suggest": {f["capability"]: f["suggest"] for f in deduped},
         "python": {"found": bool(python), "resolved": str(python) if python else "", "version": python_ver,
                    "vendor_ok": vendor_ok,
                    "modules": {"ezdwg": ezdwg_ok, "ezdxf": ezdxf_ok, "numpy": numpy_ok, "fontTools": font_tools_ok}},
-        "external": {"pdftoppm": bool(pdftoppm), "ocr_image": bool(ocr_image), "image_ocr_skill": image_ocr_skill.is_dir(),
+        "external": {"pdftoppm": bool(pdftoppm), "ocr_image": bool(ocr_image),
+                     "tesseract": bool(tesseract), "image_ocr_skill": image_ocr_skill.is_dir(),
                      "pdf_route": bool(pdf_route), "pdf_inspector_venv_python": bool(pdf_venv), "tessdata": tessdata.is_dir()},
+        "platform": {"os": platform.system(),
+                     "memory_guard": {
+                         "psutil_ok": psutil_ok,
+                         "hint": "POSIX 优先 resource.getrusage；Windows/阻断时回退 psutil。psutil 可选，缺失时内存闸降级为协作式超时。",
+                     }},
         "tier0": {
             "summary": {k: caps[k]["status"] for k in caps},
             "capabilities": caps,
@@ -362,6 +454,8 @@ def render_text(report: dict) -> str:
     lines = ["[doctor] cad-file-reader 环境分档体检", ""]
     py = report["python"]
     lines.append(f"Python: {py['version']} ({py['resolved'] or '未找到'})  vendor: {'就位' if py['vendor_ok'] else '缺失'}")
+    pg = report.get('platform', {})
+    lines.append(f"平台提示：{pg.get('os', '-')} · 内存闸 psutil：{'有' if pg.get('memory_guard', {}).get('psutil_ok') else '无（降级为协作式超时）'} · {pg.get('memory_guard', {}).get('hint', '-')}")
     lines.append("")
     lines.append("档 0 · 当前能力")
     for cap in report["tier0"]["capabilities"].values():
@@ -383,6 +477,7 @@ def render_md(report: dict) -> str:
              f"- 生成时间：{report['generated_at']}",
              f"- 技能根：`{report['skill_root']}`",
              f"- Python：`{report['python'].get('version') or '未找到'}`（resolved：`{report['python'].get('resolved') or '-'}`）",
+             f"- 平台提示：{report.get('platform', {}).get('os', '-')} · 内存闸 psutil：{'有' if report.get('platform', {}).get('memory_guard', {}).get('psutil_ok') else '无（降级为协作式超时）'} · {report.get('platform', {}).get('memory_guard', {}).get('hint', '-')}",
              "",
              "## 档 0 · 当前能力分档", ""]
     lines.append("| 能力 | 分档 | 说明 | 最小修复 |")

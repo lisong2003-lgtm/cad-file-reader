@@ -111,8 +111,8 @@ class CalibrateSuggestionExcludeTests(unittest.TestCase):
         from cad_common import load_rules
         from cad_landscape_calibrate import suggest_text_word
         rules = load_rules(SKILL_DIR / "packs/landscape-geometry/rules.json")
-        for bad in ("花砖", "示例花园", "示例市区", "示例银行示例支行",
-                    "示例市政养护所宿舍", "示例公安局示例分局"):
+        for bad in ("花砖", "振兴花园", "济南市槐荫区", "建设银行济南槐荫支行阳光新城分理处",
+                    "槐荫区市政养护所宿舍", "济南市公安局槐荫分局"):
             self.assertEqual(suggest_text_word(bad, rules), ("", "", 0.0), bad)
         # 明确植物词仍建议
         self.assertEqual(suggest_text_word("紫叶矮樱", rules)[0], "乔木")

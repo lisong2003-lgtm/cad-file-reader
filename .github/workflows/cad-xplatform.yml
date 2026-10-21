@@ -1,0 +1,57 @@
+name: cad-file-reader cross-platform CI
+
+# 三平台矩阵：任何改动不得让 darwin-only 路径/命令泄漏到 Windows/Linux。
+# 矩阵步骤 = 本地可复现的等价命令（不含真图/公司数据，只用 examples）。
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-platform:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # setup：安装 vendor 依赖；psutil 为可选（内存看门狗回退），装不上就跳过、不阻断。
+      - name: Setup vendor + optional psutil
+        shell: bash
+        run: |
+          python scripts/setup.py --quiet --force  # 强制重建本平台 vendor，覆盖仓库内 darwin 二进制
+          python -m pip install --disable-pip-version-check --no-input -q psutil \
+            || echo "psutil unavailable; mem_guard degrades to cooperative timeout"
+
+      # 跨平台 lint：扫 darwin-only 硬编码；vendor 探测允许 darwin .so 存在，
+      # 本平台缺其它平台二进制不报错。
+      - name: Cross-platform lint + vendor probe
+        run: python scripts/lint_cross_platform.py scripts/ --vendor-check --platform "${{ runner.os }}"
+
+      - name: pyboot --version
+        run: python scripts/pyboot.py --version
+
+      - name: py_compile 全量
+        run: python -m compileall -f -q scripts
+
+      # 自测只跑 examples/公开样例，不跑真图/公司路径。
+      - name: self_test --json-only
+        run: python scripts/self_test.py --json-only
+
+      - name: doctor --json-only
+        run: python scripts/doctor.py --json-only

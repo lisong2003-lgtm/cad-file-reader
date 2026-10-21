@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
-import resource
 import sys
 from pathlib import Path
 from typing import Any
@@ -72,9 +72,29 @@ def segment_length(seg: list[Any] | tuple[Any, ...]) -> float:
         return 0.0
 
 
+def _psutil_rss_mb() -> int | None:
+    """psutil 当前进程 RSS（MB）；不可用时返回 None（Windows 主路径）。"""
+    try:
+        import psutil
+        return int(psutil.Process(os.getpid()).memory_info().rss / 1048576)
+    except Exception:
+        return None
+
+
 def peak_rss_mb() -> int:
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return int(rss / 1048576) if sys.platform == "darwin" else int(rss / 1024)
+    """峰值 RSS（MB）：POSIX 用 resource 且按平台单位换算；Windows/阻断时用 psutil。"""
+    if sys.platform != "win32":
+        try:
+            import resource
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            if sys.platform == "darwin":
+                return int(rss / 1048576)
+            if sys.platform.startswith("linux"):
+                return int(rss / 1024)
+        except Exception:
+            pass
+    ps = _psutil_rss_mb()
+    return ps if ps is not None else 0
 
 
 def file_name(data: dict[str, Any], value: Any) -> str:

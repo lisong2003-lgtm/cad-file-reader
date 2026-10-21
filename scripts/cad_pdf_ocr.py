@@ -33,14 +33,41 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
+from platform_paths import find_tool, normalize_platform
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_ROOT = SCRIPT_DIR.parent
 
 _home_default = Path.home() / ".codex"
-PDF_ROUTE = Path(os.environ.get("PDF_INSPECTOR_ROUTE", str(_home_default / "skills" / "pdf-inspector" / "scripts" / "pdf_route.py")))
-PDETOPPM = shutil.which("pdftoppm") or str(_home_default / ".." / ".cache" / "codex-runtimes" / "codex-primary-runtime" / "dependencies" / "bin" / "override" / "pdftoppm")
-OCR_IMAGE = shutil.which("ocr_image") or Path(os.environ.get("OCR_IMAGE", str(_home_default / "bin" / "ocr_image")))
-PDF_INSPECTOR_VENV = Path(os.environ.get("PDF_INSPECTOR_VENV", str(_home_default / "skills" / "pdf-inspector" / ".venv" / "bin" / "python")))
+
+
+def _default_pdf_venv_python() -> str:
+    """pdf-inspector 技能 venv Python 的跨平台默认路径。"""
+    base = _home_default / "skills" / "pdf-inspector" / ".venv"
+    if normalize_platform() == "win":
+        return str(base / "Scripts" / "python.exe")
+    return str(base / "bin" / "python")
+
+
+PDF_INSPECTOR_VENV = Path(
+    os.environ.get("PDF_INSPECTOR_VENV")
+    or find_tool("pdf-inspector-python")
+    or _default_pdf_venv_python()
+)
+_pdf_inspector_dir = PDF_INSPECTOR_VENV.parent.parent.parent
+PDF_ROUTE = Path(
+    os.environ.get("PDF_INSPECTOR_ROUTE")
+    or str(_pdf_inspector_dir / "scripts" / "pdf_route.py")
+)
+PDETOPPM = find_tool("pdftoppm") or str(
+    _home_default / ".." / ".cache" / "codex-runtimes"
+    / "codex-primary-runtime" / "dependencies" / "bin" / "override" / "pdftoppm"
+)
+OCR_IMAGE = Path(
+    os.environ.get("OCR_IMAGE")
+    or find_tool("ocr_image")
+    or str(_home_default / "bin" / "ocr_image")
+)
 PDF_VEC_SCRIPT = Path(__file__).resolve().parent / "cad_pdf_vec.py"
 
 SOURCE_SCHEMA = "cad-file-reader/v0"

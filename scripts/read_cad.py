@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import resource
 import shutil
 import subprocess
 import sys
@@ -20,6 +19,7 @@ DEFAULT_MAX_FILE_MB = 20    # 入口大小闸：超过即拒绝整档解析，�
 
 from cad_common import peak_rss_mb
 from cad_preflight import preflight_file
+from platform_paths import find_tool
 def apply_mem_cap(cap_mb: int) -> str:
     """macOS 没有可用的 RLIMIT_AS，改用进程内看门狗（见 mem_guard.py）。"""
     try:
@@ -344,30 +344,10 @@ def read_dxf(path: Path, max_text: int) -> dict[str, Any]:
     return result
 
 def _find_oda_converter() -> Optional[str]:
-    candidates = [
-        "/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
-        "/Applications/ODAFileConverter/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
-        str(Path.home() / "Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter"),
-    ]
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate
-    return shutil.which("ODAFileConverter")
+    return find_tool("ODAFileConverter")
 
 def _find_dwg2dxf() -> Optional[str]:
-    candidates = [
-        str(Path.home() / ".codex/bin/dwg2dxf"),
-        "/opt/homebrew/bin/dwg2dxf",
-        "/usr/local/bin/dwg2dxf",
-        "/tmp/libredwg_install/bin/dwg2dxf",
-    ]
-    found = shutil.which("dwg2dxf")
-    if found:
-        return found
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return candidate
-    return None
+    return find_tool("dwg2dxf")
 
 def _convert_with_ezdwg(src: Path, outdir: Path) -> tuple[Optional[Path], str]:
     try:

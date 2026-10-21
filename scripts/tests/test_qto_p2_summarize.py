@@ -24,7 +24,7 @@ from qto_p2_summarize import (  # noqa: E402
 )
 
 
-def _mk_recog(root: Path, slug: str, name: str = "示例楼栋__%s__20260101.json"):
+def _mk_recog(root: Path, slug: str, name: str = "酒店楼栋__%s__20260101.json"):
     d = root / "识别" / slug
     d.mkdir(parents=True, exist_ok=True)
     f = d / (name % slug)
@@ -39,7 +39,7 @@ class QtoP2SummarizeTest(unittest.TestCase):
     def test_summary_statuses_and_csv(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            init_project(root, "示例工程", building="示例楼栋", source="file",
+            init_project(root, "示例工程", building="酒店楼栋", source="file",
                          recognized=["anzhuang-suanliang", "yuanlin-suanliang", "zhuangshi-suanliang"])
             # 基座识别（P2 不消费，但让项目结构完整）
             _mk_recog(root, "cad-file-reader")

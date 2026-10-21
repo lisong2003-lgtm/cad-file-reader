@@ -1,0 +1,76 @@
+name: cad-file-reader XOS regression (2026-10-21)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cad-xreg-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup vendor + optional psutil
+        shell: bash
+        run: |
+          python scripts/setup.py --quiet --force
+          python -m pip install --disable-pip-version-check --no-input -q psutil \
+            || echo "psutil unavailable; mem_guard degrades to cooperative timeout"
+
+      - name: doctor --json-only
+        shell: bash
+        run: python scripts/doctor.py --json-only > doctor_${{ runner.os }}.json || echo "doctor_exit=$?" >> doctor_${{ runner.os }}.meta
+
+      - name: self_test --json-only
+        shell: bash
+        run: python scripts/self_test.py --json-only > selftest_${{ runner.os }}.json || echo "selftest_exit=$?" >> selftest_${{ runner.os }}.meta
+
+      - name: cad_scan sample_room.dxf (json)
+        shell: bash
+        run: |
+          set +e
+          python scripts/cad_scan.py --format json examples/sample_room.dxf \
+            > cad_scan_${{ runner.os }}.json 2> cad_scan_${{ runner.os }}.stderr
+          echo "cad_scan_exit=$?" > cad_scan_${{ runner.os }}.meta
+          exit 0
+
+      - name: read_cad sample_room.dxf (--json)
+        shell: bash
+        run: |
+          set +e
+          python scripts/read_cad.py --json examples/sample_room.dxf \
+            > read_cad_${{ runner.os }}.json 2> read_cad_${{ runner.os }}.stderr
+          echo "read_cad_exit=$?" > read_cad_${{ runner.os }}.meta
+          exit 0
+
+      - name: Upload regression artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-xreg-${{ runner.os }}
+          path: |
+            doctor_*.json
+            doctor_*.meta
+            selftest_*.json
+            selftest_*.meta
+            cad_scan_*.json
+            cad_scan_*.stderr
+            cad_scan_*.meta
+            read_cad_*.json
+            read_cad_*.stderr
+            read_cad_*.meta
+          if-no-files-found: warn

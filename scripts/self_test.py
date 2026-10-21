@@ -379,7 +379,7 @@ def run_sample_regression(python: Path) -> tuple[dict, int]:
         env.setdefault("PYTHONPATH", str(SKILL_DIR / "vendor"))
         env["CAD_CONCISE"] = "0"
         proc = subprocess.run(
-            ["/bin/bash", str(SCRIPTS_DIR / "cad_scan.sh"), str(SAMPLE_DXF),
+            [str(python), str(SCRIPTS_DIR / "run_cad.py"), "cad_scan", str(SAMPLE_DXF),
              "--format", "json", "--detail-json", str(detail), "-o", str(out_prefix)],
             cwd=str(SKILL_DIR), env=env, capture_output=True, text=True, timeout=600,
         )

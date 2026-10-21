@@ -16,7 +16,7 @@ from qto_p1_link import run as p1_run  # noqa: E402
 from qto_p3_clash import clash_project, write_clash  # noqa: E402
 
 
-def _mk_recog(root, slug, name="示例楼栋__%s__20260101.json"):
+def _mk_recog(root, slug, name="酒店楼栋__%s__20260101.json"):
     d = root / "识别" / slug
     d.mkdir(parents=True, exist_ok=True)
     f = d / (name % slug)
@@ -31,8 +31,8 @@ class QtoP3ClashTest(unittest.TestCase):
     def test_multi_specialty_overlap_creates_cross_check(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            # 三个专业登记 active；同部位 示例楼栋/一层 均在算量层登记
-            init_project(root, "示例工程", building="示例楼栋", source="file",
+            # 三个专业登记 active；同部位 酒店楼栋/一层 均在算量层登记
+            init_project(root, "示例工程", building="酒店楼栋", source="file",
                          recognized=["tujian-suanliang", "anzhuang-suanliang", "zhuangshi-suanliang"])
             _mk_recog(root, "cad-file-reader")
             _mk_recog(root, "tujian-suanliang")

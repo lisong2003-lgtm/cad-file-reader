@@ -66,7 +66,16 @@
     "scripts/run_real_dwg_regression.sh",
     "scripts/setup.sh",
     "scripts/self_test.sh",
-    "scripts/self_test.py"
+    "scripts/self_test.py",
+    "scripts/pyboot.py",
+    "scripts/platform_paths.py",
+    "scripts/safe_timeout.py",
+    "scripts/mem_guard.py",
+    "scripts/lint_cross_platform.py",
+    "scripts/run_cad.py",
+    "scripts/setup.py",
+    "scripts/setup_linux.sh",
+    "scripts/setup_windows.ps1"
   ],
   "privacy": "本机运行，图纸字节不上传；DWG/DXF 解析使用随包第三方库，详见 NOTICE.md。",
   "boundary": "只做识图、证据、语义/拓扑/变化候选和测量候选（final_quantity=false）；不输出最终工程量、材料量、造价、结算量、规范符合性结论或设计审查结论。",

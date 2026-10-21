@@ -31,7 +31,7 @@ from qto_validate import validate_project  # noqa: E402
 
 class QtoSafeTest(unittest.TestCase):
     def test_safe_name_strips_illegal_chars(self):
-        self.assertEqual(safe_name("示例楼/核心:一期"), "示例楼_核心_一期")
+        self.assertEqual(safe_name("5#楼/酒店:一期"), "5#楼_酒店_一期")
         self.assertEqual(safe_name("  a  b  "), "a_b")
 
     def test_yaml_roundtrip(self):
@@ -46,11 +46,11 @@ class QtoInitWrapTest(unittest.TestCase):
     def test_init_creates_layout_and_placeholder_valid(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            init_project(root, "示例工程", building="示例楼栋", recognized=["tujian-suanliang"])
+            init_project(root, "示例工程", building="5#楼酒店", recognized=["tujian-suanliang"])
             self.assertTrue((root / ".qto/project.yaml").is_file())
             for slug in SKILL_SLUGS:
                 self.assertTrue((root / RECOG_DIR / slug).is_dir())
-            pkey = default_project_key("示例工程", "yuanlin-suanliang", building="示例楼栋", source="file", review_required=True)
+            pkey = default_project_key("示例工程", "yuanlin-suanliang", building="5#楼酒店", source="file", review_required=True)
             payload = make_placeholder_payload("yuanlin-suanliang", pkey, "P1 未接入")
             out = output_path(root, "yuanlin-suanliang", pkey)
             out.parent.mkdir(parents=True, exist_ok=True)

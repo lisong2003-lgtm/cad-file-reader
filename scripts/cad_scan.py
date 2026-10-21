@@ -35,7 +35,6 @@ import io
 import json
 import os
 import re
-import signal
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -80,24 +79,27 @@ class Budget(Exception):
 
 
 class stage:
-    """with stage(60): ...  超时会抛 Budget，不影响主进程。"""
+    """with stage(60): ...  超时会抛 Budget，不影响主进程。
+
+    跨平台：POSIX 走 safe_timeout 的 SIGALRM 硬超时（与原行为一致）；
+    Windows 走协作式 Deadline，调用返回对象的 check() 触发超时。
+    """
 
     def __init__(self, seconds: float):
         self.seconds = seconds
 
     def __enter__(self):
-        self._old = signal.getsignal(signal.SIGALRM)
-        signal.signal(signal.SIGALRM, self._boom)
-        signal.setitimer(signal.ITIMER_REAL, max(0.1, self.seconds))
-        return self
+        import safe_timeout
+        self._ctx = safe_timeout.deadline(self.seconds)
+        self._dl = self._ctx.__enter__()
+        return self._dl
 
-    def _boom(self, *_a):
-        raise Budget("time budget exceeded")
-
-    def __exit__(self, *exc):
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, self._old or signal.SIG_DFL)
-        return False
+    def __exit__(self, exc_type, exc_value, exc_tb):
+        import safe_timeout
+        try:
+            return self._ctx.__exit__(exc_type, exc_value, exc_tb)
+        except safe_timeout.DeadlineExceeded:
+            raise Budget("time budget exceeded") from None
 
 
 # ---------------------------------------------------------------- 构件型号规则
@@ -760,9 +762,10 @@ def dxf_geometry_segments(path, budget, log, include_layers=False, roi=None, max
         return (segs, seg_layers, notes) if include_layers else (segs, notes)
     stop = False
     try:
-        with stage(budget):
+        with stage(budget) as dl:
             doc = ezdxf.readfile(str(path))
             for e in doc.modelspace():
+                dl.check()
                 if stop:
                     break
                 try:
@@ -815,9 +818,10 @@ def dxf_block_geometries(path, budget, log, max_rows=None):
     n_seg = 0
     stop = False
     try:
-        with stage(budget):
+        with stage(budget) as dl:
             doc = ezdxf.readfile(str(path))
             for block in doc.blocks:
+                dl.check()
                 if stop:
                     break
                 name = str(block.name or "").strip()
@@ -826,6 +830,7 @@ def dxf_block_geometries(path, budget, log, max_rows=None):
                 segs = []
                 layers = []
                 for e in block:
+                    dl.check()
                     if stop:
                         break
                     try:
@@ -1610,9 +1615,21 @@ def main():
         print("没有找到文件", file=sys.stderr)
         return 2
 
-    import resource
     def rss_mb():
-        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1e6)
+        try:
+            import resource
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            if sys.platform == "darwin":
+                return round(rss / 1e6)
+            if sys.platform.startswith("linux"):
+                return round(rss / 1024)
+        except Exception:
+            pass
+        try:
+            import psutil
+            return round(psutil.Process().memory_info().rss / 1048576.0)
+        except Exception:
+            return 0
 
     if args.worker:
         sys.exit(_worker(args.worker, args.paths[0]))

@@ -15,30 +15,84 @@
 - **大图低内存扫描**、证据缓存、局部解析；Markdown / JSON / CSV / Excel / Word 输出。
 - **统一候选契约** `cad-file-reader/v0`：证据坐标、置信度分层（confirmed/inferred/review）、复核原因。
 
-## 安装
+## 安装（三平台一条命令）
 
-依赖：Python 3.10+；解析库随完整包自带，或由轻量包一条命令补齐。
+依赖：Python 3.10+；解析库随完整包自带，或由轻量包一条命令补齐到本包 `vendor/`，不污染系统环境。
 
-完整包（已内置 vendor）：
+macOS：
+
+```bash
+cd "$CODEX_HOME/skills/cad-file-reader"
+bash scripts/setup.sh --dry-run   # 先看平台/依赖清单
+bash scripts/setup.sh             # 缺 vendor 时用公共 PyPI 补齐到 vendor/
+```
+
+Windows（PowerShell 或 CMD 均可，内部统一转发 Python）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -DryRun   # 只检测
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1           # 安装+doctor 摘要
+```
+
+Linux (Debian/Ubuntu 优先，fedora/dnf 已备注等价包)：
+
+```bash
+cd "$CODEX_HOME/skills/cad-file-reader"
+bash scripts/setup_linux.sh --dry-run   # 只打印，不安装系统包
+bash scripts/setup_linux.sh             # 缺系统依赖时用 apt 安装后补齐 vendor
+# 已有系统依赖时可跳过 apt：SKIP_APT=1 bash scripts/setup_linux.sh
+```
+
+完整包（已内置 vendor，macOS/Linux 通常无需执行安装器）：
 
 ```bash
 cp -R cad-file-reader "$CODEX_HOME/skills/"
 # 可选：普通环境缺 numpy 时
 python3 -m pip install numpy
+# 可选（内存看门狗平台回退，Windows 主路径）：缺少时内存闸降级为协作式超时
+python3 -m pip install psutil
 ```
 
 SkillHub 轻量包（纯文本合规包，不含二进制 vendor）：
 
 ```bash
 cd "$CODEX_HOME/skills/cad-file-reader"
-bash scripts/install_vendor.sh   # 默认零配置：自动用公共 PyPI 补齐依赖到本包 vendor/
+bash scripts/setup.sh   # 等价旧路径；内部转发 scripts/setup.py，缺依赖用公共 PyPI 补齐
 ```
 
-装好后自检（一条命令看哪些能力可用/缺依赖）：
+## Windows 使用（新增 .cmd 入口）
 
-```bash
-bash scripts/deps_check.sh --minimal
+Windows 用户请先运行：
+
+```bat
+scripts\setup.cmd        # 依赖自举：检查/提示补齐 vendor
+scripts\deps_check.cmd   # 依赖自检（复用 pyboot 检查）
+scripts\doctor.cmd       # 环境体检，一条命令看能力分档
 ```
+
+之后即可像 macOS/Linux 一样使用（内部统一转发到 `scripts/run_cad.py`）：
+
+```bat
+scripts\cad_scan.cmd   图纸.dwg --only 墙,柱 --format json -o 扫描结果
+scripts\read_cad.cmd   图纸.dwg
+scripts\convert_dwg.cmd 图纸.dwg --out 图纸.dxf
+scripts\cad_validate.cmd 候选.json
+scripts\cad_batch.cmd   图纸目录 --out 台账 --recursive
+scripts\demo.cmd        # 简明演示（扫描内置样例）
+```
+
+已提供的 .cmd：`setup / deps_check / doctor / cad_scan / read_cad / convert_dwg /
+cad_validate / demo / cad_batch`，以及 17 个专业识图入口
+（`cad_descriptive_geometry / cad_structural_geometry / cad_site_geometry /
+cad_mep_geometry / cad_electrical_geometry / cad_steel_geometry /
+cad_municipal_geometry / cad_hvac_plumbing_geometry /
+cad_interior_finish_geometry / cad_curtain_wall_geometry /
+cad_civil_defense_geometry / cad_precast_geometry /
+cad_bridge_tunnel_road_traffic / cad_pile_foundation_slope /
+cad_doors_windows_stairs_insulation_waterproof /
+cad_fire_prevention_accessibility_green_energy / cad_landscape_geometry`）。
+
+这些 .cmd 只做薄转发、不替换现有 `*.sh`；macOS/Linux 继续用 `.sh`。
 
 ## 环境体检（doctor，只读）
 
@@ -80,6 +134,18 @@ bash scripts/self_test.sh --json-only --skip-unit      # 快速跑，JSON 打到
 - 第 6 段：可选真实 DWG 回归（`run_real_dwg_regression.py`），缺清单则记
   `skipped`，不影响其它段结论。
 - 任一非跳过段失败时退出码为 1，禁止发布。
+
+## 跨平台 CI 与不可回归 lint
+
+- GitHub Actions：`.github/workflows/cad-xplatform.yml` 在 ubuntu / windows / macos 三个平台跑
+  setup（含可选 psutil）→ `scripts/pyboot.py --version` → `scripts/lint_cross_platform.py`
+  （含 vendor 探测）→ py_compile → `self_test --json-only` → `doctor --json-only`。
+- 本地复现：`python3 scripts/lint_cross_platform.py scripts/`（退出码 0 = 无 ERROR；
+  WARN 仅提示）。`--vendor-check` 允许仓库存在 darwin `.so`，其它平台缺 darwin 二进制不报错。
+- 约束：业务脚本出现 `/opt/homebrew`、`/Applications`、`.venv/bin`、`brew`、`osascript`、
+  `setrlimit/RLIMIT_*`、裸 `resource.getrusage`、`SIGALRM`、`SIGKILL` 且没有平台分支保护
+  会被判 ERROR；跨平台 helper（pyboot/platform_paths/safe_timeout/mem_guard）命中为 WARN。
+- 改动边界：不改 `cad-file-reader/v0` / `qto-project/v1` 契约，不重写解析与算量逻辑。
 
 ## 批量识图台账（scripts/cad_batch.sh）
 

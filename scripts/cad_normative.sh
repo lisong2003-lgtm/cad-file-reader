@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run_cad.sh" cad_normative "$@"
+exec python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run_cad.py" cad_normative "$@"

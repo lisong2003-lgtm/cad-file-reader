@@ -10,6 +10,7 @@
 - 回归：真实 DWG 子集 20 条由 10 通过/10 失败 → 20/20 通过；全量自测 205/205 保持全绿，
   schema/cad_validate 契约校验继续通过，`final_quantity=false` 未改动。
 - `manifest.json` 同步升版 0.31.7。
+- 发布备注（2026-10-20）：GitHub Release v0.31.7 + SkillHub @user_43faedd6/cad-file-reader 0.31.7 + ClawHub lisong2003-lgtm/cad-file-reader 1.1.0 三平台同步发布；发布包经 cad_release_scrub + check_release 脱敏/合规扫描，problems=0，不含真图/公司路径（真图清单仅存项目根，不随发布）。
 
 ## 0.31.6 — 2026-10-20（CI / self_test 统一自测回归闭环）
  — 2026-10-20（CI / self_test 统一自测回归闭环）
