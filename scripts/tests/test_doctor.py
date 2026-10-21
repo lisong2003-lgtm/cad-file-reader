@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,7 +13,7 @@ ALLOWED_STATUSES = {"可用", "需外部转换", "需OCR引擎", "不可用"}
 class CadDoctorTest(unittest.TestCase):
     def _run(self, tmp: Path, *extra: str) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [str(DOCTOR), *extra],
+            [sys.executable, str(DOCTOR), *extra],
             capture_output=True, text=True, timeout=60, cwd=str(tmp),
         )
 

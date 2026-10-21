@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -91,7 +92,7 @@ class DoctorPlatformBranchTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cad-doctor-plat-") as td:
             tmp = Path(td)
             proc = subprocess.run(
-                [str(DOCTOR), "--json-only"], capture_output=True, text=True,
+                [sys.executable, str(DOCTOR), "--json-only"], capture_output=True, text=True,
                 timeout=90, cwd=str(tmp),
             )
             self.assertEqual(proc.returncode, 0, proc.stderr)
