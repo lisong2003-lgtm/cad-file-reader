@@ -166,9 +166,10 @@ class FindToolPathPriorityTest(unittest.TestCase):
     """PATH 必须优先于平台表与 extra_dirs。"""
 
     def test_path_wins_over_extra_dir(self):
-        # 本用例模拟 darwin/linux 的执行位判定；Windows runner 上无 POSIX 执行位，
-        # 因此 mock 掉 _is_executable_file，专测 PATH > extra_dirs 的优先级逻辑。
-        with mock.patch.object(pp, "_is_executable_file", return_value=True),                 tempfile.TemporaryDirectory(prefix="cad-pp-") as td:
+        # 模拟 darwin/linux 的 PATH 优先级：Windows runner 上无 POSIX 执行位且
+        # PATHEXT 不强制无扩展名，因此把 _which_path 固定为 PATH 命中的那份，
+        # 并 mock 掉执行位判定，只验证 PATH > extra_dirs。
+        with tempfile.TemporaryDirectory(prefix="cad-pp-") as td:
             pathdir = Path(td) / "PATH_ONLY"
             pathdir.mkdir(parents=True, exist_ok=True)
             path_tool = _write_file(pathdir / "oda_prefer_path", exec_bit=True)
@@ -179,11 +180,11 @@ class FindToolPathPriorityTest(unittest.TestCase):
                 "ProgramFiles": str(td),
                 "LOCALAPPDATA": str(td),
                 "USERPROFILE": str(td),
-            }):
+            }), mock.patch.object(pp, "_is_executable_file", return_value=True), \
+                    mock.patch.object(pp, "_which_path", return_value=str(path_tool)):
                 got = pp.find_tool("oda_prefer_path", extra_dirs=[str(Path(td) / "extra")], platform_hint="darwin")
             self.assertEqual(got, str(path_tool))
             self.assertNotEqual(got, str(extra_fake))
-
 
 class OcrandPdfUnixTest(unittest.TestCase):
     """ocr_image / pdf-inspector venv 在 macOS/Linux 的 macOS/Linux 布局。"""
