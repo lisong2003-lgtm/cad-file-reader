@@ -150,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
         cap_mb = 4096
     mem_guard.start(cap_mb)
 
-    # platform_paths：平台规范化 + 本机 ~/.codex 根，供后续平台化子命令参考。
+    # platform_paths：平台规范化 + 本机 $HOME/.codex 根，供后续平台化子命令参考。
     _ = (platform_paths.normalize_platform(), platform_paths.home_codex())
 
     real_script = str(script)

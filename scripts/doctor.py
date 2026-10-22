@@ -298,7 +298,7 @@ def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
                               "detail": "找到 pdf_route.py 但缺可执行 Python", "fix": fix_tpl["setup"] + " 后重试"}
     else:
         caps["pdf_vector"] = {"label": "PDF 矢量", "status": STATUS_NONE,
-                              "detail": "缺 pdf-inspector 技能（pdf_route.py 不存在）", "fix": fix_tpl["pdf_inspector"] + "（或重建 ~/.codex/skills/pdf-inspector）"}
+                              "detail": "缺 pdf-inspector 技能（pdf_route.py 不存在）", "fix": fix_tpl["pdf_inspector"] + "（或重建 $HOME/.codex/skills/pdf-inspector）"}
 
     # ---- PDF 扫描 OCR ----
     ocr_engine_ok = bool(ocr_image) and image_ocr_skill.is_dir()
@@ -312,7 +312,7 @@ def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
     elif pdftoppm and not ocr_engine_ok:
         caps["pdf_raster_ocr"] = {"label": "PDF 扫描/混合 OCR", "status": STATUS_OCR,
                                   "detail": "缺 image-ocr / ocr_image 引擎，扫描页无法本地 OCR",
-                                  "fix": fix_tpl["image_ocr"] + "   # 或确认 ~/.codex/skills/image-ocr/scripts/ocr_image 在 PATH"}
+                                  "fix": fix_tpl["image_ocr"] + "   # 或确认 $HOME/.codex/skills/image-ocr/scripts/ocr_image 在 PATH"}
     elif not pdftoppm and ocr_engine_ok:
         caps["pdf_raster_ocr"] = {"label": "PDF 扫描/混合 OCR", "status": STATUS_CONVERT,
                                   "detail": "缺 pdftoppm（Poppler），PDF 无法渲染成像素页",

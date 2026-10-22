@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.33.0 (2026-10-22)
+- lis-skill-bus 可选联动（试点）：cad_scan/cad_measure 真实产出经 scripts/cad_statesync.py push 进 bus（cad-contract/v1），五件套可直接复用、免重复解图；pull 支持 SKILLBUS_HOME / 正式安装 / 本机降级四级路径，`--require-core` 收紧核心 section 命中；新增 Windows scripts/cad_statesync.cmd（未实机跑通，仅静态校验通过）。核心解析/契约/置信口径不变。
 
 ## 0.32.2 (2026-10-21)
 - 三平台对齐（cross-platform + i18n overseas）：README.en.md、`--lang en|zh` 主入口、i18n.py、CFI 三平台 workflow 全绿。
@@ -24,7 +26,6 @@
 - `manifest.json` 新增 `"platforms": ["macos","windows","linux"]`，并把 26 个 `.cmd` Windows 入口加入 `scripts` 清单（共 193 项）；版本同步升 0.32.0。
 - 三平台发布包各自生成（GitHub 完整包 / SkillHub 轻量合规包 / ClawHub 包），随 GitHub Release 附 macOS / Windows / Linux 的 doctor-report 与 self_test 报告。
 - 本机技能正文保持 canonical，不因平台安装差异修改。
-
 
 ## 0.31.7 — 2026-10-20（真图回归缺陷修复：候选门槛 + DWG 空解码自动复扫）
 
