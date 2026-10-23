@@ -1,7 +1,11 @@
 # Changelog
 
-## 0.33.1 (2026-10-23)
-- 修复 SkillHub 版 Windows 无 `.cmd` 时的接线说明：改为 `python scripts/*_statesync.py` 等价调用（bus 安装用 `python install_py.py --apply`）；GitHub 完整包保留 `.cmd`。平台发布调整，算法/契约/口径不变。
+## 0.34.0 (2026-10-23)
+- lis-skill-bus 联动由“可选试点”改为“推荐联动（不装自动降级）”：补齐跨平台安装入口（SkillHub slug: lis-skill-bus；GitHub: lisong2003-lgtm/lis-skill-bus；安装器 python install_py.py --apply），保留不装自动降级（写 $HOME/.codex/skills/.skillbus/state.json，五件套各自可用）。
+- doctor.py 恢复只读 bus 检测（$HOME/.codex/mcp_servers/lis-skill-bus/、$HOME/.codex/skills/lis-skill-bus/、$HOME/.codex/skills/.skillbus/ 与 SKILLBUS_HOME/SKILLBUS_CLIENT），输出已安装/未装（推荐安装），不打印内部 dev 路径与安装器原文。
+- 新增 scripts/setup_win.py（Windows 纯 Python 安装入口，py→python→python3 探测，转发 scripts/setup.py，支持 --dry-run，打印 winget/choco 后端指引）；README.md / README.en.md 安装段补 setup_windows.ps1 / setup_win.py 与 bus 推荐入口。
+- 新增根 VERIFICATION-selftest.md（0.32.1 三平台 CI 265/0 + 0.31.7 真图 20/20 基线）。
+- 不改变契约 schema、cad_contract.py、wrap_v1/cmd_push/cmd_pull 与命令算法。
 
 
 ## 0.33.0 (2026-10-22)

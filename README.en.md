@@ -1,6 +1,6 @@
 # Local CAD Reader & Evidence Extractor
 
-> cad-file-reader (cad-file-reader) v0.32.1 · overseas-friendly lightweight layer. 中文版见 [README.md](README.md).
+> cad-file-reader (cad-file-reader) v0.34.0 · overseas-friendly lightweight layer. 中文版见 [README.md](README.md).
 
 ## What it is
 A local AutoCAD reader that extracts DWG/DXF/DWT and PDF content from construction drawings without needing AutoCAD. It reads layers, text, blocks, title frames, geometry, and landscape legend candidates, and returns them with source evidence, coordinates and review flags.
@@ -18,6 +18,8 @@ python3 scripts/cad_scan.py drawing.dwg --format json -o drawing.scan
 ## Install across the three platforms
 - **GitHub**: clone or download the repo, copy the skill folder into `$CODEX_HOME/skills/` (or `~/.claude/skills/` / your agent's skill directory), then run `bash scripts/setup.sh` (idempotent).
 - **SkillHub**: install the SkillHub lightweight package (text-only). The lightweight package removes platform-only launcher files (`.cmd`/`.ps1`, extensionless scripts and binary language models) and documents the Windows usage inside its own README; the GitHub full package keeps all platform launchers and assets.
+- **Windows**: full package: `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`; lightweight package (text-only, no `.cmd`/`.ps1`): `python scripts/setup_win.py` (add `--dry-run` to inspect first).
+- **lis-skill-bus (recommended, optional)**: install the lis-skill-bus skill first (SkillHub slug: `lis-skill-bus`; GitHub: `lisong2003-lgtm/lis-skill-bus`), then run `python install_py.py --apply`. Without it, cad-file-reader auto-degrades to `$HOME/.codex/skills/.skillbus/state.json` and the five qto skills remain usable.
 - **ClawHub**: install the ClawHub full package, which keeps cross-platform launchers and assets.
 - All platform packages serve the same canonical logic; platform copies never change the canonical code.
 

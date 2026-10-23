@@ -47,6 +47,21 @@ def log_err(msg: str) -> None:
     print(f"[cad_statesync] {msg}", file=sys.stderr)
 
 
+_BUS_HINT_BENEFITS = (
+    "lis-skill-bus 未安装：本次已自动降级到本机状态文件，功能不受影响，不装也能用。好处：同一张 CAD 图只解析一次，5 个算量技能共享同一份项目状态与识图契约；完全本地、不联网、不上云。"
+)
+_BUS_HINT_INSTALL = (
+    "一行安装（macOS/Linux）：bash install_skillbus.sh --apply；"
+    "Windows：install_skillbus.cmd --apply；只复制不注册 MCP：SKIP_MCP_REG=1 bash install_skillbus.sh --apply"
+)
+
+
+def bus_install_hint(op: str = "") -> None:
+    print(f"[cad_statesync] {_BUS_HINT_BENEFITS}（操作：{op or '自动降级'}）", file=sys.stderr)
+    print(f"[cad_statesync] 安装命令：\n  {_BUS_HINT_INSTALL}", file=sys.stderr)
+
+
+
 # --------------------------------------------------------------------------- bus 定位
 def _candidate_paths() -> list[Path]:
     home = Path.home()
@@ -63,9 +78,6 @@ def _candidate_paths() -> list[Path]:
     out.append(codex_home / "skills" / ".skillbus" / "skillbus_client.py")
     # 常见本机开发/落地副本（不断言唯一，命中第一个即可）
     patterns = (
-        str(home / "Documents" / "Codex" / "*" / "tan" / "work" / "lis-skill-bus" / "skillbus_client.py"),
-        str(home / "Documents" / "Codex" / "*" / "*" / "lis-skill-bus" / "skillbus_client.py"),
-        str(home / "Documents" / "*" / "lis-skill-bus" / "skillbus_client.py"),
         str(home / ".codex" / "*" / "lis-skill-bus" / "skillbus_client.py"),
     )
     for pat in patterns:
@@ -83,16 +95,17 @@ def _candidate_paths() -> list[Path]:
 def _is_dev_copy(p: Path) -> bool:
     s = str(p.resolve()).replace("\\", "/")
     markers = (
-        "/tan/work/",
-        "/work/lis-skill-bus",
         "/lis-skill-bus-step",
-        "/Documents/Codex/",
+        "/work/lis-skill-bus",
+        "/codex-dev",
+        "/tmp/lis-skill-bus",
     )
     return any(m in s for m in markers)
 
 
 def find_bus_client() -> Path | None:
     if os.environ.get("SKILLBUS_DISABLE") == "1":
+        bus_install_hint("SKILLBUS_DISABLE=1")
         return None
     for p in _candidate_paths():
         if p.is_file():
@@ -101,6 +114,7 @@ def find_bus_client() -> Path | None:
             else:
                 print(f"[cad_statesync] bus 命中来源：{p}（正式安装）", file=sys.stderr)
             return p
+    bus_install_hint()
     return None
 
 

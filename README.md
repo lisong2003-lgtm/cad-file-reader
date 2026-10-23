@@ -37,6 +37,13 @@ powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1 -DryRun   # �
 powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1           # 安装+doctor 摘要
 ```
 
+Windows SkillHub 轻量包（无 .cmd / .ps1，用纯 Python 安装入口）：
+
+```bat
+python scripts\setup_win.py --dry-run   # 只检测
+python scripts\setup_win.py             # 安装/校验 vendor + 后端指引
+```
+
 Linux (Debian/Ubuntu 优先，fedora/dnf 已备注等价包)：
 
 ```bash
@@ -63,7 +70,16 @@ cd "$CODEX_HOME/skills/cad-file-reader"
 bash scripts/setup.sh   # 等价旧路径；内部转发 scripts/setup.py，缺依赖用公共 PyPI 补齐
 ```
 
+
+### lis-skill-bus 推荐联动（可选装，不装自动降级）
+
+先装 lis-skill-bus（SkillHub slug：`lis-skill-bus`；GitHub：`lisong2003-lgtm/lis-skill-bus`），
+装完运行安装器 `python install_py.py --apply`；Windows SkillHub 版无 `.cmd` 时统一用
+`python scripts/cad_statesync.py push/pull`。不装自动降级到
+`$HOME/.codex/skills/.skillbus/state.json`，五件套仍各自可用。
+
 ## Windows 使用（新增 .cmd 入口）
+
 
 Windows 用户请先运行：
 
@@ -121,7 +137,7 @@ cad_fire_prevention_accessibility_green_energy / cad_landscape_geometry`）。
 ### 安装步骤对比
 
 1. **macOS**：`bash scripts/setup.sh`（缺 vendor 时自动补齐）；默认后端 LibreDWG/ODA 可选装。
-2. **Windows 10/11**：PowerShell 执行 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`；日常入口用 `.cmd`。
+2. **Windows 10/11**：PowerShell 执行 `powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1`，或 SkillHub 轻量包用 `python scripts/setup_win.py`；日常入口用 `.cmd`。
 3. **Linux x86_64**：`bash scripts/setup_linux.sh`（apt/dnf/yum 自动适配；已有系统依赖可用 `SKIP_APT=1`）。
 
 ### 常见问题（FAQ）

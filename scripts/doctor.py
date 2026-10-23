@@ -195,6 +195,31 @@ def calc_python_version(python: Path) -> str:
         return str(python)
 
 
+
+
+def _find_bus_client() -> tuple[str, str | None]:
+    """只读探测 lis-skill-bus 联动脉冲（已装/未装/禁用）。与 cad_statesync.py 同口径。"""
+    if os.environ.get("SKILLBUS_DISABLE") == "1":
+        return "禁用（SKILLBUS_DISABLE=1）", None
+    home = Path.home()
+    codex_home = Path(os.environ.get("CODEX_HOME", home / ".codex"))
+    cands: list[Path] = []
+    sbc = os.environ.get("SKILLBUS_CLIENT")
+    sbh = os.environ.get("SKILLBUS_HOME")
+    if sbc:
+        cands.append(Path(sbc))
+    if sbh:
+        cands.append(Path(sbh) / "skillbus_client.py")
+    cands += [
+        codex_home / "mcp_servers" / "lis-skill-bus" / "skillbus_client.py",
+        codex_home / "skills" / "lis-skill-bus" / "skillbus_client.py",
+        codex_home / "skills" / ".skillbus" / "skillbus_client.py",
+    ]
+    for cand in cands:
+        if cand.is_file():
+            return "已安装", str(cand)
+    return "未装", None
+
 def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
     plat = _norm_platform(platform_hint)
     fix_tpl = _fix_templates(plat)
@@ -341,6 +366,16 @@ def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
     caps["qto_linkage"] = {"label": "算量联动 (qto-project/v1)", "status": STATUS_OK if qto_ok else STATUS_NONE,
                            "detail": "qto init/wrap/validate 可用，五件套登记联动手册齐全" if qto_ok else "缺 qto_project.py/qto_validate.sh，可能下载包不完整",
                            "fix": "" if qto_ok else fix_tpl["setup"] + "   # 或重下完整包"}
+    bus_state, bus_path = _find_bus_client()
+    if bus_state == "已安装":
+        caps["lis_skill_bus"] = {"label": "lis-skill-bus 联动总线（推荐）", "status": bus_state,
+                                 "detail": f"已安装（{bus_path}）：同一张图只解析一次，五件套共享识图契约与项目状态",
+                                 "fix": ""}
+    else:
+        caps["lis_skill_bus"] = {"label": "lis-skill-bus 联动总线（推荐）", "status": bus_state,
+                                 "detail": "未安装：bus 缺失时各技能自动降级到本机状态，功能不受影响；推荐安装（SkillHub slug: lis-skill-bus；GitHub: lisong2003-lgtm/lis-skill-bus）。",
+                                 "fix": ""}
+
 
     # ---- 档 1 修复清单（每条带平台专属 command + 跨平台 suggest） ----
     suggestions = {
@@ -350,6 +385,7 @@ def build_report(skill_root: Path, platform_hint: str | None = None) -> dict:
         "pdf_raster_ocr": "Poppler：win 用 winget/choco/官方下载页；linux 用 poppler-utils（apt/dnf）；macOS 用 brew install poppler。",
         "measure": "缺 numpy 也可 pip 装进 vendor：python3 -m pip install --target vendor numpy。",
         "qto_linkage": "检查下载包完整性，或重下完整包后运行对应平台 setup。",
+        "lis_skill_bus": "推荐安装 lis-skill-bus（SkillHub slug: lis-skill-bus；GitHub: lisong2003-lgtm/lis-skill-bus），装好后同一张图只解析一次；不装自动降级，功能不受影响。",
     }
     fixes: list[dict] = []
     for cap_id, cap in caps.items():

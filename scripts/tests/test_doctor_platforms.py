@@ -28,7 +28,9 @@ sys.path.insert(0, str(SKILL_DIR / "scripts"))
 import doctor  # noqa: E402
 
 ALLOWED = set(doctor.STATUSES)
-CAPABILITIES = ("dxf", "dwg", "pdf_vector", "pdf_raster_ocr", "measure", "qto_linkage")
+BUS_STATES = ("已安装", "未装", "禁用（SKILLBUS_DISABLE=1）")  # lis_skill_bus 探测口径
+ALLOWED = ALLOWED.union(BUS_STATES)
+CAPABILITIES = ("dxf", "dwg", "pdf_vector", "pdf_raster_ocr", "measure", "qto_linkage", "lis_skill_bus")
 
 
 class DoctorPlatformBranchTest(unittest.TestCase):
@@ -59,7 +61,7 @@ class DoctorPlatformBranchTest(unittest.TestCase):
             with self.subTest(platform=hint):
                 rep = self._report(hint)
                 self.assertEqual(rep["os"], hint)
-                self.assertEqual(len(rep["tier0"]["capabilities"]), 6)
+                self.assertEqual(len(rep["tier0"]["capabilities"]), 7)
                 self.assertEqual(
                     sorted(rep["tier0"]["capabilities"].keys()), sorted(CAPABILITIES)
                 )
@@ -99,7 +101,7 @@ class DoctorPlatformBranchTest(unittest.TestCase):
             rep = json.loads(proc.stdout)
             self.assertIn("os", rep)
             self.assertIn("suggest", rep)
-            self.assertEqual(len(rep["tier0"]["capabilities"]), 6)
+            self.assertEqual(len(rep["tier0"]["capabilities"]), 7)
             self.assertEqual(rep["schema"], "cad-file-reader/doctor-v1")
 
 
