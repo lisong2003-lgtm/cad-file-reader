@@ -41,6 +41,14 @@ jobs:
           python -m pip install --disable-pip-version-check --no-input -q psutil \
             || echo "psutil unavailable; mem_guard degrades to cooperative timeout"
 
+      # Windows 安装入口实测：DryRun 只检测/打印依赖清单，不安装、不改系统配置。
+      - name: Windows install entry (DryRun)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/setup_windows.ps1 -DryRun -SkipDoctor
+          python scripts/setup_win.py --dry-run
+
       # 跨平台 lint：扫 darwin-only 硬编码；vendor 探测允许 darwin .so 存在，
       # 本平台缺其它平台二进制不报错。
       - name: Cross-platform lint + vendor probe
@@ -52,19 +60,103 @@ jobs:
       - name: py_compile 全量
         run: python -m compileall -f -q scripts
 
-      # 自测只跑 examples/公开样例，不跑真图/公司路径。
+      # 自测只跑 examples/公开样例，不跑真图/公司路径。stdout 落盘供 artifact 上传。
       - name: self_test --json-only
-        run: python scripts/self_test.py --json-only
+        shell: bash
+        run: python scripts/self_test.py --json-only > self_test.json
 
       # 中文输出/路径复核：三平台都必须能产出 JSON（Windows 小写 cp1252 回归防线）。
+      # --with-geom / --detail-json 同时产出 bus 往返所需核心段（text_records+geometry_segments）。
       - name: cad_scan sample_room.dxf --format json
-        run: python scripts/cad_scan.py examples/sample_room.dxf --format json
+        shell: bash
+        run: python scripts/cad_scan.py examples/sample_room.dxf --format json --with-geom --detail-json cad_scan_detail.json > cad_scan.json
 
       - name: doctor --json-only
-        run: python scripts/doctor.py --json-only
+        shell: bash
+        run: python scripts/doctor.py --json-only > doctor.json
 
       - name: read_cad --lang en --json（i18n 英文输出）
         run: python scripts/read_cad.py --lang en --json --max-text 5 examples/sample_room.dxf
 
       - name: doctor --lang en --json-only
         run: python scripts/doctor.py --lang en --json-only
+
+      # bus 往返集成（三 OS）：拉公开 lis-skill-bus@v0.1.1，SKILLBUS_HOME 指向它，
+      # push 构造 cad-file-reader/v0 → pull → 断言契约核心段并做 schema 校验。
+      - name: bus roundtrip (lis-skill-bus@v0.1.1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v0.1.1 https://github.com/lisong2003-lgtm/lis-skill-bus.git "$RUNNER_TEMP/lis-skill-bus"
+          export SKILLBUS_HOME="$RUNNER_TEMP/lis-skill-bus"
+          echo "SKILLBUS_HOME=$SKILLBUS_HOME"
+          python scripts/cad_statesync.py push --detail-json cad_scan_detail.json --project demo --building demo --floor 1 --skill cad-file-reader > bus_push.json
+          python scripts/cad_statesync.py pull --project demo --building demo --floor 1 --out pull.json > bus_pull.log
+          python - <<'PY'
+          import json, os
+          d = json.load(open("pull.json", encoding="utf-8"))
+          assert d.get("schema") == "cad-contract/v1", d.get("schema")
+          s = json.dumps(d)
+          assert "text_records" in s, "缺少 text_records 核心段"
+          assert "geometry_segments" in s, "缺少 geometry_segments 核心段"
+          print("assert OK: schema=cad-contract/v1, text_records + geometry_segments")
+          PY
+          python -m pip install --disable-pip-version-check --no-input -q jsonschema
+          export SCHEMA_PATH="$RUNNER_TEMP/lis-skill-bus/schemas/cad-contract-v1.schema.json"
+          python - <<'PY'
+          import json, os, sys
+          from jsonschema import Draft202012Validator
+          d = json.load(open("pull.json", encoding="utf-8"))
+          s = json.load(open(os.environ["SCHEMA_PATH"], encoding="utf-8"))
+          Draft202012Validator.check_schema(s)
+          errs = list(Draft202012Validator(s).iter_errors(d))
+          if errs:
+              for e in errs[:6]:
+                  print("SCHEMA ERROR:", e.message, list(e.absolute_path), file=sys.stderr)
+              sys.exit(1)
+          print("schema validation OK: cad-contract-v1.schema.json")
+          PY
+          cp "$RUNNER_TEMP/lis-skill-bus/schemas/cad-contract-v1.schema.json" bus_schema.json
+
+      # 降级路径：SKILLBUS_DISABLE=1 时 push/pull 直写本机状态文件且不报错。
+      - name: bus downgrade path (SKILLBUS_DISABLE=1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SKILLBUS_DISABLE=1
+          export SKILLBUS_STATE_DIR="$HOME/.codex/skills/.skillbus"
+          python scripts/cad_statesync.py push --detail-json cad_scan_detail.json --project demo --building demo --floor 1 --skill cad-file-reader > bus_downgrade_push.json
+          python scripts/cad_statesync.py pull --project demo --building demo --floor 1 --out pull_downgrade.json > bus_downgrade_pull.log
+          STATE_FILE="$HOME/.codex/skills/.skillbus/state.json"
+          test -f "$STATE_FILE" || { echo "missing downgrade state: $STATE_FILE" >&2; exit 1; }
+          cp "$STATE_FILE" bus_downgrade_state.json
+          python - <<'PY'
+          import json, os
+          p = os.path.expanduser("~/.codex/skills/.skillbus/state.json")
+          if not os.path.isfile(p):
+              raise SystemExit("missing downgrade state file: " + p)
+          d = json.load(open(p, encoding="utf-8"))
+          assert d.get("projects"), "state.json 无 projects 段"
+          print("downgrade state OK:", p)
+          PY
+
+      # 上传 doctor/selftest/cad_scan/bus_*.json 供发布校验（VERIFICATION 回填）留存。
+      - name: Upload CI artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cad-xplatform-${{ runner.os }}
+          if-no-files-found: warn
+          path: |
+            self_test.json
+            cad_scan.json
+            cad_scan_detail.json
+            doctor.json
+            bus_push.json
+            bus_pull.log
+            pull.json
+            pull_downgrade.json
+            bus_schema.json
+            bus_downgrade_push.json
+            bus_downgrade_pull.log
+            bus_downgrade_state.json
