@@ -46,7 +46,25 @@ from cad_scan_cache import (
 
 from cad_preflight import preflight_file
 
-VENDOR = Path.home() / ".codex/skills/cad-file-reader/vendor"
+def _resolve_vendor() -> Path:
+    """vendor 定位：环境变量 → 技能自身 vendor → 其他 Agent 技能目录（跨 Agent 复用）。"""
+    env = os.environ.get("CAD_SKILL_VENDOR")
+    if env and Path(env).is_dir():
+        return Path(env)
+    own = Path(__file__).resolve().parent.parent / "vendor"
+    if own.is_dir():
+        return own
+    for cand in sorted(Path.home().glob(".workbuddy/skills/*/cad-file-reader/vendor")):
+        if cand.is_dir():
+            return cand
+    for cand in (Path.home() / ".claude/skills/cad-file-reader/vendor",
+                 Path.home() / ".codex/skills/cad-file-reader/vendor"):
+        if cand.is_dir():
+            return cand
+    return own
+
+
+VENDOR = _resolve_vendor()
 if VENDOR.is_dir():
     sys.path.insert(0, str(VENDOR))
 

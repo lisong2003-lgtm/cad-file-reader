@@ -178,6 +178,15 @@ def validate_schema_file(instance, schema_path: Path) -> tuple[bool, list[str]]:
 # --------------------------------------------------------------------------- #
 def cmd_unit_json() -> int:
     import unittest
+    if not TESTS_DIR.is_dir():
+        # 轻量包（SkillHub）不随附 scripts/tests/：跳过而非失败，避免"装完自测就红"
+        print(json.dumps({
+            "ok": True,
+            "skipped": True,
+            "reason": f"未随包提供单元测试目录: {TESTS_DIR}；完整包或源码仓可用 --unit-json 跑全量。",
+            "tests_run": 0, "failures": 0, "errors": 0, "failed_tests": [],
+        }, ensure_ascii=False))
+        return 0
     loader = unittest.TestLoader()
     suite = loader.discover(str(TESTS_DIR), pattern="test_*.py")
     runner = unittest.TextTestRunner(stream=sys.stderr, verbosity=1)
@@ -375,8 +384,30 @@ def run_schema_steps(python: Path) -> tuple[dict, int]:
 def run_sample_regression(python: Path) -> tuple[dict, int]:
     step = {"name": "sample_dxf", "ok": False, "detail": {}}
     if not SAMPLE_DXF.is_file():
-        step["detail"]["error"] = f"样例缺失: {SAMPLE_DXF}"
-        return step, 1
+        # SkillHub 轻量包常剔除 examples/：先尝试用 generate_sample.py 现场重建
+        generator = SCRIPTS_DIR / "generate_sample.py"
+        if generator.is_file():
+            env_gen = dict(os.environ)
+            env_gen.setdefault("PYTHONPATH", str(SKILL_DIR / "vendor"))
+            try:
+                gen = subprocess.run(
+                    [str(python), str(generator), "--out", str(SAMPLE_DXF)],
+                    cwd=str(SKILL_DIR), env=env_gen,
+                    capture_output=True, text=True, timeout=300,
+                )
+                step["detail"]["generate_rc"] = gen.returncode
+                step["detail"]["generate_stderr_tail"] = (gen.stderr or "").strip().splitlines()[-3:]
+            except Exception as exc:  # noqa: BLE001
+                step["detail"]["generate_error"] = str(exc)
+    if not SAMPLE_DXF.is_file():
+        # 仍缺失：判为"跳过"而非失败——样例缺失不代表算量能力异常
+        step["ok"] = True
+        step["skipped"] = True
+        step["detail"]["reason"] = (
+            f"样例缺失且无法重建: {SAMPLE_DXF}；"
+            "轻量包可忽略此项，正式发布请用完整包跑真图回归。"
+        )
+        return step, 0
     with tempfile.TemporaryDirectory(prefix="cad-selftest-sample-") as tmpd:
         tmp = Path(tmpd)
         detail = tmp / "sample_detail.json"

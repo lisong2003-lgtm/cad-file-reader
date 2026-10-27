@@ -75,7 +75,7 @@ bash scripts/setup.sh   # 等价旧路径；内部转发 scripts/setup.py，缺�
 
 先装 lis-skill-bus（SkillHub slug：`lis-skill-bus`；GitHub：`lisong2003-lgtm/lis-skill-bus`），
 装完运行安装器 `python install_py.py --apply`；Windows SkillHub 版无 `.cmd` 时统一用
-`python scripts/cad_statesync.py push/pull`。不装自动降级到
+`bash scripts/cad_statesync.sh push/pull`。不装自动降级到
 `$HOME/.codex/skills/.skillbus/state.json`，五件套仍各自可用。
 
 ## Windows 使用（新增 .cmd 入口）
@@ -143,7 +143,7 @@ cad_fire_prevention_accessibility_green_energy / cad_landscape_geometry`）。
 ### 常见问题（FAQ）
 
 - **Q：Windows 命令提示符没有 bash，能用吗？**
-  A：能。Windows 全部提供 `.cmd` 入口（`scripts\cad_scan.cmd` 等），内部统一转发到 `python scripts/run_cad.py`，不需要 Git Bash 或 WSL。
+  A：能。Windows 全部提供 `.cmd` 入口（`scripts\cad_scan.cmd` 等），内部统一转发到 `bash scripts/run_cad.sh`，不需要 Git Bash 或 WSL。
 - **Q：Windows 打印中文 JSON 乱码（cp1252）？**
   A：入口已切换为 Python + UTF-8；若仍遇终端编码问题，在 `cmd` 执行 `chcp 65001` 或设置 `PYTHONUNBUFFERED=1`/`PYTHONIOENCODING=utf-8`。
 - **Q：三平台 `self_test` 内容一样吗？**

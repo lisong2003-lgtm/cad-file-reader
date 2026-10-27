@@ -89,7 +89,7 @@ def collect_files(paths: list[str], glob_pat: str, recursive: bool) -> list[Path
 def run_cad_scan(path: Path, detail_path: Path, json_path: Path, budget: float, cache_dir: str | None) -> tuple[int, str]:
     cmd: list[str] = []
     if RUN_CAD_SH.exists() and os.access(RUN_CAD_SH, os.X_OK):
-        cmd = [str(RUN_CAD_SH), "cad_scan"]
+        cmd = ["bash", str(RUN_CAD_SH), "cad_scan"]
     else:
         # 退化：直接调 python（依赖 PYTHONPATH 已含 scripts 同级路径）
         cmd = [sys.executable, str(SKILL_DIR / "scripts/cad_scan.py")]
