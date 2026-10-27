@@ -35,6 +35,28 @@ if _unpacked_ok; then
   exit 0
 fi
 
+# 跨 Agent 复用：本技能没有 vendor 时，先看其它 Agent 安装的同款技能是否已有 vendor。
+# 命中则软链到本目录 vendor（幂等），避免重复下载 40MB+ 依赖。
+_reuse_candidates() {
+  [ -n "${CAD_SKILL_VENDOR:-}" ] && echo "$CAD_SKILL_VENDOR"
+  for _d in "$SKILL_DIR"/../cad-file-reader/vendor \
+            "$HOME"/.workbuddy/skills/*/cad-file-reader/vendor \
+            "$HOME/.claude/skills/cad-file-reader/vendor" \
+            "$HOME/.codex/skills/cad-file-reader/vendor"; do
+    [ -d "$_d" ] && echo "$_d"
+  done
+}
+
+if [ ! -e "$SKILL_DIR/vendor" ]; then
+  while IFS= read -r _cand; do
+    [ -d "$_cand/ezdxf" ] && [ -d "$_cand/fontTools" ] || continue
+    if ln -sfn "$_cand" "$SKILL_DIR/vendor" 2>/dev/null; then
+      say "runtime: 复用已有 vendor（不联网）：$_cand"
+      exit 0
+    fi
+  done < <(_reuse_candidates)
+fi
+
 if [ "${CAD_AUTO_SETUP:-1}" != "1" ]; then
   echo "❌ cad-file-reader 缺少 vendor（ezdwg/ezdxf/fontTools）。" >&2
   echo "   已设 CAD_AUTO_SETUP=0 关闭自动下载。请手动运行：" >&2

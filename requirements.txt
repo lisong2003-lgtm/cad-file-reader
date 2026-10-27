@@ -1,6 +1,6 @@
 # cad-file-reader 依赖声明
-# 说明：优先使用技能自带 vendor/（ezdxf / ezdwg / fontTools / pyparsing / typing_extensions / openpyxl），
-#      只有 vendor 缺失或需要升级时才按本文件安装：python3 -m pip install -r requirements.txt
+# 优先使用技能自带 vendor/（ezdxf / ezdwg / fontTools / pyparsing / typing_extensions / openpyxl），
+# 缺失时：python3 -m pip install -r requirements.txt
 ezdxf>=1.4.0
 ezdwg>=0.12.6
 numpy>=1.24

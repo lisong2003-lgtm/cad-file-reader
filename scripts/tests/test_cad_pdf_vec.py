@@ -13,6 +13,8 @@ VENV = Path(os.environ.get("PDF_INSPECTOR_VENV", str(Path.home() / ".codex" / "s
 
 class CadPdfVecTest(unittest.TestCase):
     def _make_text_pdf(self, workdir: Path) -> Path:
+        if not shutil.which("soffice"):
+            self.skipTest("soffice (LibreOffice) 未安装，跳过 PDF 矢量用例")
         txt = workdir / "sample.txt"
         txt.write_text("一层平面图\nC30 混凝土\n消火栓 2531\n", encoding="utf-8")
         pdf = workdir / "sample.pdf"

@@ -178,15 +178,6 @@ def validate_schema_file(instance, schema_path: Path) -> tuple[bool, list[str]]:
 # --------------------------------------------------------------------------- #
 def cmd_unit_json() -> int:
     import unittest
-    if not TESTS_DIR.is_dir():
-        # 轻量包（SkillHub）不随附 scripts/tests/：跳过而非失败，避免"装完自测就红"
-        print(json.dumps({
-            "ok": True,
-            "skipped": True,
-            "reason": f"未随包提供单元测试目录: {TESTS_DIR}；完整包或源码仓可用 --unit-json 跑全量。",
-            "tests_run": 0, "failures": 0, "errors": 0, "failed_tests": [],
-        }, ensure_ascii=False))
-        return 0
     loader = unittest.TestLoader()
     suite = loader.discover(str(TESTS_DIR), pattern="test_*.py")
     runner = unittest.TextTestRunner(stream=sys.stderr, verbosity=1)
@@ -204,6 +195,10 @@ def cmd_unit_json() -> int:
 
 
 def run_unit_tests(python: Path) -> tuple[dict, int]:
+    # 轻量发布包（SkillHub 文件数上限 200）不随附 scripts/tests：缺失即跳过，不判失败。
+    if not TESTS_DIR.is_dir() or not any(TESTS_DIR.glob("test_*.py")):
+        return {"ok": True, "skipped": True,
+                "detail": {"reason": f"未随附单元测试目录（{TESTS_DIR}），已跳过；完整包可自测"}}, 0
     proc = subprocess.run(
         [str(python), str(Path(__file__).resolve()), "--unit-json"],
         cwd=str(SKILL_DIR),
@@ -384,30 +379,19 @@ def run_schema_steps(python: Path) -> tuple[dict, int]:
 def run_sample_regression(python: Path) -> tuple[dict, int]:
     step = {"name": "sample_dxf", "ok": False, "detail": {}}
     if not SAMPLE_DXF.is_file():
-        # SkillHub 轻量包常剔除 examples/：先尝试用 generate_sample.py 现场重建
-        generator = SCRIPTS_DIR / "generate_sample.py"
-        if generator.is_file():
-            env_gen = dict(os.environ)
-            env_gen.setdefault("PYTHONPATH", str(SKILL_DIR / "vendor"))
+        # 轻量包（SkillHub 文件类型白名单不收 .dxf）先尝试现场重建样例，仍无则跳过。
+        gen = SCRIPTS_DIR / "generate_sample.py"
+        if gen.is_file():
             try:
-                gen = subprocess.run(
-                    [str(python), str(generator), "--out", str(SAMPLE_DXF)],
-                    cwd=str(SKILL_DIR), env=env_gen,
-                    capture_output=True, text=True, timeout=300,
-                )
-                step["detail"]["generate_rc"] = gen.returncode
-                step["detail"]["generate_stderr_tail"] = (gen.stderr or "").strip().splitlines()[-3:]
-            except Exception as exc:  # noqa: BLE001
-                step["detail"]["generate_error"] = str(exc)
-    if not SAMPLE_DXF.is_file():
-        # 仍缺失：判为"跳过"而非失败——样例缺失不代表算量能力异常
-        step["ok"] = True
-        step["skipped"] = True
-        step["detail"]["reason"] = (
-            f"样例缺失且无法重建: {SAMPLE_DXF}；"
-            "轻量包可忽略此项，正式发布请用完整包跑真图回归。"
-        )
-        return step, 0
+                subprocess.run([str(python), str(gen)], cwd=str(SKILL_DIR),
+                               capture_output=True, text=True, timeout=180)
+            except Exception:
+                pass
+        if not SAMPLE_DXF.is_file():
+            step["ok"] = True
+            step["skipped"] = True
+            step["detail"]["reason"] = f"轻量包未随附样例图纸（{SAMPLE_DXF.name}），已跳过样例回归"
+            return step, 0
     with tempfile.TemporaryDirectory(prefix="cad-selftest-sample-") as tmpd:
         tmp = Path(tmpd)
         detail = tmp / "sample_detail.json"

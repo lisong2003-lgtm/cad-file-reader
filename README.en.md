@@ -11,8 +11,8 @@ Use when you receive a DWG/DXF/PDF drawing and need its text, layers, block list
 ## Quick start
 ```bash
 bash scripts/doctor.sh            # environment health check (read-only)
-bash scripts/read_cad.sh drawing.dwg --json
-bash scripts/cad_scan.sh drawing.dwg --format json -o drawing.scan
+python3 scripts/read_cad.py drawing.dwg --json
+python3 scripts/cad_scan.py drawing.dwg --format json -o drawing.scan
 ```
 
 ## Install across the three platforms

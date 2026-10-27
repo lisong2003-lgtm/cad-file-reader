@@ -1,14 +1,10 @@
+## 0.37.1
+
+- **修复（发布兼容）** `cad_batch.py` 调用 `run_cad.sh` 改为 `bash` 启动，不再依赖 `.sh` 执行位（SkillHub/ClawHub 打包会丢失执行位）。
+- **修复（跨 Agent）** `cad_scan.py` 的 `VENDOR` 由写死 `~/.codex/skills/.../vendor` 改为「`CAD_SKILL_VENDOR` → 技能自身 vendor → 其他 Agent 技能目录」，WorkBuddy / Claude 安装后可直接用自带 vendor。
+- **新增** `requirements.txt` 依赖声明，vendor 缺失或需升级时有据可依。
+
 # Changelog
-
-## 0.34.1
-
-- **修复** `scripts/self_test.py`：`scripts/tests/` 未随轻量包提供时判为 SKIP（原为 ImportError 直接失败）；样例 DXF 缺失时先尝试 `generate_sample.py` 现场重建，仍缺失则标 SKIP。
-- **新增** `requirements.txt` 依赖声明（ezdxf / ezdwg / numpy / openpyxl / typing_extensions 等），vendor 缺失或升级时有据可依。
-- **新增** `vendor/` 补齐 `typing_extensions` 与 `openpyxl`，修复 Python 3.13 下 ezdxf 导入即崩的问题；doctor 的 DWG 能力由「不可用」转为「可用」。
-- **修复** 全部 `.sh` 脚本缺少可执行位（118 个），导致 `cad_statesync.sh` 等被 subprocess 调用时报 PermissionError。
-- **文档** SKILL.md/README 中的 `python scripts/x.py` 全部改为 `bash scripts/x.sh`（原写法在无全局依赖的环境下必然报错）；清理空标题。
-- **修复（发布兼容）** `cad_batch.py` 调用 `run_cad.sh` 改为 `bash` 启动，不再依赖 `.sh` 执行位（SkillHub 打包会丢失执行位）。
-- **修复（跨 Agent）** `cad_scan.py` 的 `VENDOR` 由写死 `~/.codex/skills/.../vendor` 改为「`CAD_SKILL_VENDOR` 环境变量 → 技能自身 vendor → 其他 Agent 技能目录」，WorkBuddy / Claude 安装后可直接用自带 vendor。
 
 ## 0.34.0 (2026-10-23)
 - lis-skill-bus 联动由“可选试点”改为“推荐联动（不装自动降级）”：补齐跨平台安装入口（SkillHub slug: lis-skill-bus；GitHub: lisong2003-lgtm/lis-skill-bus；安装器 python install_py.py --apply），保留不装自动降级（写 $HOME/.codex/skills/.skillbus/state.json，五件套各自可用）。

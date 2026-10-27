@@ -88,7 +88,8 @@ def collect_files(paths: list[str], glob_pat: str, recursive: bool) -> list[Path
 
 def run_cad_scan(path: Path, detail_path: Path, json_path: Path, budget: float, cache_dir: str | None) -> tuple[int, str]:
     cmd: list[str] = []
-    if RUN_CAD_SH.exists() and os.access(RUN_CAD_SH, os.X_OK):
+    if RUN_CAD_SH.exists():
+        # 走 bash 启动：SkillHub/ClawHub 打包会丢失 .sh 执行位
         cmd = ["bash", str(RUN_CAD_SH), "cad_scan"]
     else:
         # 退化：直接调 python（依赖 PYTHONPATH 已含 scripts 同级路径）
