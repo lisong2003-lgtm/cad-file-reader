@@ -1,6 +1,6 @@
 # Local CAD Reader & Evidence Extractor
 
-> cad-file-reader (cad-file-reader) v0.34.0 · overseas-friendly lightweight layer. 中文版见 [README.md](README.md).
+> cad-file-reader (cad-file-reader) v0.38.2 · overseas-friendly lightweight layer. 中文版见 [README.md](README.md).
 
 ## What it is
 A local AutoCAD reader that extracts DWG/DXF/DWT and PDF content from construction drawings without needing AutoCAD. It reads layers, text, blocks, title frames, geometry, and landscape legend candidates, and returns them with source evidence, coordinates and review flags.

@@ -1,7 +1,19 @@
+## 0.38.2
+
+- **更新发布** 补 CHANGELOG 详细条目与 README.en 版本号；三端（Codex/WorkBuddy/发布仓库）同版本同内容再次校验通过。tujian-suanliang 的 manifest tests 仅保留真实存在的 `scripts/self_test.py`（完整 tests 见本机 shangwu-suanliang 商务版）。
+- 算法、契约、权限、SKILL.md 正文与上一版无变化。
+
+## 0.38.1
+
+- **授权与保留** 发布副本新增「授权与保留」段落：明确公众仅限非商业自用（个人学习、研究、非营利），商业使用需另行取得作者书面授权；作者 lis 作为著作权人保留商用、再发布、对外授权三项权利。
+- **脱敏（发布合规）** rules 中的公司内部来源字段由「公司知识库/…/规范图集」改为「公开规范与行业通用做法整理」，不再引用公司内部资料路径与项目名。
+- **版本对齐** 本机 `~/.codex/skills`、`~/.workbuddy/skills` 与发布仓库同步同版本号；算法、契约、兼容性与上一版一致，未改业务逻辑。
+- **本机说明** 本机为作者机器，SKILL.md 不写入「授权与保留」段落（该段落仅存在于发布副本），其余内容与发布包一致。
+
 ## 0.37.1
 
 - **修复（发布兼容）** `cad_batch.py` 调用 `run_cad.sh` 改为 `bash` 启动，不再依赖 `.sh` 执行位（SkillHub/ClawHub 打包会丢失执行位）。
-- **修复（跨 Agent）** `cad_scan.py` 的 `VENDOR` 由写死 `~/.codex/skills/.../vendor` 改为「`CAD_SKILL_VENDOR` → 技能自身 vendor → 其他 Agent 技能目录」，WorkBuddy / Claude 安装后可直接用自带 vendor。
+- **修复（跨 Agent）** `cad_scan.py` 的 `VENDOR` 由写死 `$HOME/.codex/skills/.../vendor` 改为「`CAD_SKILL_VENDOR` → 技能自身 vendor → 其他 Agent 技能目录」，WorkBuddy / Claude 安装后可直接用自带 vendor。
 - **新增** `requirements.txt` 依赖声明，vendor 缺失或需升级时有据可依。
 
 # Changelog

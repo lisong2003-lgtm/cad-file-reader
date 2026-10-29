@@ -1,0 +1,55 @@
+{
+ "members": {},
+ "spec": {
+  "混凝土等级": {
+   "C30": 1
+  }
+ },
+ "spec_src": {
+  "混凝土等级": {
+   "C30": [
+    "0"
+   ]
+  }
+ },
+ "rebar_summary": {
+  "箍筋": [],
+  "纵筋": []
+ },
+ "practices": [],
+ "concrete": {
+  "C30": 1
+ },
+ "slab_thk": {},
+ "layers": [
+  "0",
+  "TEXT",
+  "WALL"
+ ],
+ "meta": {
+  "block_refs": {},
+  "sheets": [],
+  "insert_count": 0
+ },
+ "text_total": 2,
+ "cache": null,
+ "keyword_rows": [],
+ "notes": [],
+ "files": [
+  {
+   "name": "sample_room.dxf",
+   "path": "/Users/lis/.codex/skills/cad-file-reader/examples/sample_room.dxf",
+   "fmt": "DXF",
+   "texts": 2,
+   "layers": 3,
+   "secs": 0.4,
+   "rss": 55,
+   "cache": "miss",
+   "cache_read_ms": 0.0,
+   "cache_write_ms": 0.0,
+   "cache_bytes": 0,
+   "cache_file": null,
+   "segs": 4
+  }
+ ]
+}

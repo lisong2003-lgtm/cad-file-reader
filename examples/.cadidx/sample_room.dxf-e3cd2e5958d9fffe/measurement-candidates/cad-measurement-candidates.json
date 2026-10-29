@@ -1,0 +1,56 @@
+{
+  "schema": "cad-measurement-candidates/v1",
+  "source_files": [
+    "/Users/lis/.codex/skills/cad-file-reader/examples/.cadidx/sample_room.dxf-e3cd2e5958d9fffe/detail.json"
+  ],
+  "inputs": [
+    {
+      "path": "/Users/lis/.codex/skills/cad-file-reader/examples/.cadidx/sample_room.dxf-e3cd2e5958d9fffe/detail.json",
+      "schema": "cad-scan-detail",
+      "summary": {}
+    }
+  ],
+  "summary": {
+    "measurements": 0,
+    "length_candidates": 0,
+    "area_candidates": 0,
+    "volume_candidates": 0,
+    "candidate": 0,
+    "review": 0,
+    "explicit_text": 0,
+    "final_quantities": 0
+  },
+  "measurements": [],
+  "review": [],
+  "boundary": "只输出长度/面积/体积识图候选值、计算式、比例单位依据和证据；final_quantity=false。扣减、重叠、做法、损耗、分账、清单量、材料量和结算量由专项算量 skill 负责。",
+  "contract": {
+    "schema": "cad-file-reader/v0",
+    "source": [
+      "detail.json"
+    ],
+    "origin_schema": "cad-measurement-candidates/v1",
+    "summary": {
+      "total": 0,
+      "confirmed_evidence": 0,
+      "inferred_candidate": 0,
+      "review_required": 0,
+      "candidate_count": 0,
+      "duplicate_candidate": 0
+    },
+    "review_reasons": [
+      "missing_scale",
+      "missing_unit",
+      "missing_layer",
+      "missing_block_definition",
+      "ambiguous_text_binding",
+      "geometry_conflict",
+      "duplicate_candidate",
+      "outside_viewport",
+      "incomplete_geometry",
+      "low_confidence_inference"
+    ],
+    "candidates": [],
+    "review_candidates": [],
+    "boundary": "识图候选与测量候选，final_quantity=false；不输出最终工程量、材料量、造价或结算量。"
+  }
+}

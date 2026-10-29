@@ -1,0 +1,37 @@
+{
+ "schema": "cad-normative-assist/v1",
+ "boundary": "仅定位规范/图集元数据、版本风险和缺少的设计输入；不输出条文符合性结论。",
+ "summary": {
+  "ref_count": 0,
+  "current": 0,
+  "legacy": 0,
+  "unconfirmed": 0,
+  "obsolete": 0,
+  "unknown": 0,
+  "indexed_refs": 0,
+  "unindexed_refs": 0,
+  "conflict_count": 0,
+  "missing_input_count": 0
+ },
+ "refs": [],
+ "profile": {
+  "混凝土等级": [
+   "C30"
+  ]
+ },
+ "profile_evidence": [
+  {
+   "parameter": "混凝土等级",
+   "value": "C30",
+   "scope": "sample_room.dxf",
+   "evidence": "C30"
+  }
+ ],
+ "conflicts": [],
+ "missing_inputs": [],
+ "knowledge_base": {
+  "root_key": "外部公开资料/规范图集",
+  "scope": "仅保存规范/图集元数据与授权入口，不复制全文；正式使用前核对现行版本和图纸指定版本",
+  "updated": "2026-09-18"
+ }
+}
