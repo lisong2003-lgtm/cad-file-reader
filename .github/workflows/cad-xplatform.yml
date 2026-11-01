@@ -132,7 +132,7 @@ jobs:
           cp "$STATE_FILE" bus_downgrade_state.json
           python - <<'PY'
           import json, os
-          p = os.path.expanduser("~/.codex/skills/.skillbus/state.json")
+          p = os.path.expanduser("$HOME/.codex/skills/.skillbus/state.json")
           if not os.path.isfile(p):
               raise SystemExit("missing downgrade state file: " + p)
           d = json.load(open(p, encoding="utf-8"))
