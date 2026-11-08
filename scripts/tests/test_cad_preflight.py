@@ -69,7 +69,8 @@ class CadPreflightTest(unittest.TestCase):
             )
             elapsed = time.time() - t0
             self.assertLess(elapsed, 5.0, f"快速失败必须 <5 秒，实际 {elapsed:.2f}s")
-            self.assertEqual(proc.returncode, 0, proc.stderr)
+            # 0.39.x 起：不可读输入按失败返回 2（不再用 0 伪装成功），但仍须给出可解析 JSON 与原因。
+            self.assertEqual(proc.returncode, 2, proc.stderr)
             data = json.loads(proc.stdout or "{}")
             self.assertTrue(data.get("notes") and any("快速失败" in x for x in data["notes"]),
                              data.get("notes"))

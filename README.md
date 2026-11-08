@@ -72,12 +72,13 @@ bash scripts/setup.sh   # 等价旧路径；内部转发 scripts/setup.py，缺�
 ```
 
 
-### lis-skill-bus 推荐联动（可选装，不装自动降级）
+### lis-skill-bus 契约联动（CAD 单用可降级，算量链必须安装）
 
 先装 lis-skill-bus（SkillHub slug：`lis-skill-bus`；GitHub：`lisong2003-lgtm/lis-skill-bus`），
 装完运行安装器 `python install_py.py --apply`；Windows SkillHub 版无 `.cmd` 时统一用
-`python scripts/cad_statesync.py push/pull`。不装自动降级到
-`$HOME/.codex/skills/.skillbus/state.json`，五件套仍各自可用。
+`python scripts/cad_statesync.py push/pull`。CAD 独立识图可不装 bus；bus 缺失时只保留
+`$HOME/.codex/skills/.skillbus/state.json` 兜底。进入土建/安装/装饰/园林/钢结构算量链时，
+bus 是必需契约桥，缺失应停止并提示安装，算量技能不得自行解图。
 
 ## Windows 使用（新增 .cmd 入口）
 
@@ -213,7 +214,7 @@ bash scripts/self_test.sh --json-only --skip-unit      # 快速跑，JSON 打到
 ```
 
 - 第 1 段：`doctor.py` 环境体检（档 0/1/2 能力与最小修复命令）。
-- 第 2 段：`unittest discover` 全量自测（现 205 项）。
+- 第 2 段：`unittest discover` 全量自测（用例数以本次 self-test 报告为准）。
 - 第 3 段：`schemas/*.schema.json` 轻量 JSON Schema 校验（随包内置，不依赖
   jsonschema）对 `examples/qto-sample` 样例做正/负向不变量校验，并用
   `cad_validate.sh` 校验全部 v0 契约样例。

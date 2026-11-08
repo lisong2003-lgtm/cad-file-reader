@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.39.6 · 2026-11-08 · 技能层瘦身与发布完整性
+
+- **SKILL.md 瘦身**：35,455 B → 16,426 B（-53.7%）。触发词、硬规则、能力边界保留在前置段；低频细则外移到 `references/`、`docs/`、`packs/`，按需加载，算法与业务口径不变。
+- **发布完整性**：被引用文件随包存在、Python/bash/JSON 语法通过、技能自检 PASS；未实现的检查如实记 SKIP。
+- **脱敏**：本机路径、真实项目名与公司资料引用替换为通用示例；平台专用入口只改发布副本。
+
+
+## 0.39.3 · 2026-11-01 · 依赖自检补齐 + 装包脚本修复
+
+- **补齐 vendor 的 typing_extensions**：ezdxf 的硬依赖（其 METADATA 明确 `Requires-Dist:
+  typing_extensions>=4.6.0`），此前 vendor 未带该包，`import ezdxf` 直接抛
+  `ModuleNotFoundError`，DXF 解析整条路（图层/文字/块/测量）实际不可用。本版随包补齐，
+  装完即可 `import ezdxf`。
+- **修复 `scripts/install_vendor.sh` 在 `set -u` 下必挂**：两处提示语句写成 `$_DEST（…`、
+  `$DEST（…`，全角括号紧贴变量名，bash 把 `_DEST（` 整体当变量名 → `unbound variable`
+  中断，导致「vendor 装好了、脚本却报错退出」。改为 `${_DEST}` 显式定界。
+- **install_vendor.sh 的 pip 清单加入 typing_extensions**：干净环境重装时依赖成套，不再缺件。
+- **`scripts/deps_check.sh` 新增 typing_extensions 检查**：缺件时直接提示「ezdxf 硬依赖，
+  缺了 DXF 解析整条路会失败」；`deps: full|partial` 判定也把该项纳入。
+
 ## 0.39.2 (prepare) · 2026-11-01 · P1 轴网可选字段
 
 - **新增可选 `axis_networks[]`（`scripts/cad_axis_networks.py` / `.sh`）**：
