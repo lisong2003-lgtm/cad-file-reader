@@ -2,13 +2,13 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.39.6
+version: 0.39.7
 license: CC-BY-NC-SA-4.0
 author: lis
 i18n: true
 locale: zh-CN
 locales: [zh-CN, en-US]
-description: 本地读取 DWG/DXF/DWT/PDF，输出带证据的识图、拓扑和测量候选；PDF 走本机 OCR。只做识图，final_quantity=false，算量交给专项技能。
+description: "识图测量候选；不做算量，final_quantity=false。触发词：识图。"
 ---
 
 # CAD 图纸识图与证据提取（cad-file-reader）
