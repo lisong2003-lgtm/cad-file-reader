@@ -217,7 +217,7 @@ def _load_v0(payload: dict) -> dict:
 
 def wrap_v1(v0: dict, project: str, building: str, floor: str, zone: str, room: str,
             specialty: str, tag_source: str, source_file: str | None, skill: str,
-            review_required: bool) -> dict:
+            review_required: bool, unit_override: str = "") -> dict:
     v0 = _load_v0(v0)
     errs = _cc.validate_contract_payload(v0)
     if errs:
@@ -252,11 +252,20 @@ def wrap_v1(v0: dict, project: str, building: str, floor: str, zone: str, room: 
         reason.append("未提供图纸来源文件名")
     eid = f"cad:{project}:{building}:{floor}:{sha[:10] if sha else 'noloc'}"
 
+    cid = contract.get("contract_id") or ""
+    unit = str(contract.get("coordinate_unit") or "").strip()
+    unit_scale = contract.get("unit_scale")
+    if not unit and unit_override:
+        unit = str(unit_override).strip()
     return {
         "_id": eid,
         "schema": "cad-contract/v1",
         "spec": "cad-file-reader/v0",
         "version": "1",
+        "contract_id": cid,
+        "provenance": "reader",
+        "coordinate_unit": unit or "",
+        **({"unit_scale": unit_scale} if unit_scale is not None else {}),
         "project_key": {
             "project": project,
             "building": building,
@@ -319,6 +328,18 @@ def cmd_push(args: argparse.Namespace) -> int:
 
     if isinstance(v0, dict) and v0.get("schema") == "cad-contract/v1":
         entry = dict(v0)
+        # 已封装 v1：补齐顶层溯源字段（guard 只读顶层），内层值优先，其次命令行显式单位
+        _inner = (entry.get("contract") or {}).get("contract") if isinstance(entry.get("contract"), dict) else {}
+        if not isinstance(_inner, dict):
+            _inner = {}
+        if not entry.get("contract_id"):
+            entry["contract_id"] = _inner.get("contract_id") or ""
+        if not entry.get("provenance"):
+            entry["provenance"] = "reader"
+        if not entry.get("coordinate_unit"):
+            entry["coordinate_unit"] = _inner.get("coordinate_unit") or (getattr(args, "drawing_unit", "") or "")
+        if entry.get("unit_scale") is None and _inner.get("unit_scale") is not None:
+            entry["unit_scale"] = _inner.get("unit_scale")
         for field, val in (("project", args.project), ("building", args.building),
                            ("floor", args.floor), ("zone", args.zone), ("room", args.room)):
             if val is not None and val != "":
@@ -331,6 +352,7 @@ def cmd_push(args: argparse.Namespace) -> int:
             zone=args.zone or "", room=args.room or "", specialty=args.specialty or "土建",
             tag_source=args.source or "file", source_file=args.source_file,
             skill=args.skill or "cad-file-reader", review_required=bool(args.review_required),
+            unit_override=getattr(args, "drawing_unit", "") or "",
         )
 
     client = find_bus_client()
@@ -414,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--detail-json", default="", help="cad_scan 的 --detail-json 详情文件")
     ap.add_argument("--source-file", default="", help="原始图纸路径（用于 source.sha256）")
     ap.add_argument("--review-required", action="store_true", help="强制下游需人工复核")
+    ap.add_argument("--drawing-unit", default="", help="原图坐标单位（如 mm）；仅在读不到 $INSUNITS 时显式声明")
     ap.add_argument("--out", default="", help="pull 输出到文件（可选）")
     ap.add_argument("--entry-id", default="", help="pull 指定 entry_id（默认 _last）")
     args = ap.parse_args(argv)

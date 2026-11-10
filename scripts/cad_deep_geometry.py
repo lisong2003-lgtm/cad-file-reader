@@ -374,6 +374,8 @@ def build_parser():
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--pack", required=True, choices=sorted(PACKS.keys()))
     parser.add_argument("--out-dir", default="深化识图")
+    parser.add_argument("--drawing-unit", default="", choices=["", "mm", "m"],
+                        help="原图坐标单位；DWG 读不到 $INSUNITS 时显式声明，写入契约 coordinate_unit")
     return parser
 
 
@@ -392,6 +394,8 @@ def main():
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules, cfg)
+        if args.drawing_unit:
+            payload["coordinate_unit"] = args.drawing_unit
         payload = contractize_payload(payload, source=src.name)
         jp = out_dir / f"{src.stem}.{cfg['suffix']}.json"
         mp = out_dir / f"{src.stem}.{cfg['suffix']}.md"

@@ -153,8 +153,9 @@ def configure_pythonpath(merge_existing: bool = True,
     """
     computed = pythonpath_entries(skill_root, vendor_dir)
     if merge_existing:
-        existing = [p for p in sys.path if p and p not in computed]
-        computed = computed + existing
+        # 只合并调用方显式注入的 PYTHONPATH；不要把当前 sys.path（含标准库）
+        # 写回环境变量，否则子进程用另一版本解释器时会加载错版本 stdlib。
+        pass
 
     # 同步 sys.path：把本项目路径前插，保证本地 vendor 优先。
     for entry in pythonpath_entries(skill_root, vendor_dir):

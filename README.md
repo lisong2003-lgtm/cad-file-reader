@@ -11,7 +11,7 @@
 ## 能做什么
 
 - **流式解析** DWG/DXF/DWT：图层、文字、块、图框、几何、构件编号、关键词。
-- **专业识图候选**（17 个专业包）：建筑、结构、总图场地、安装、电气（含消防/弱点/智能化）、钢结构、市政、给排水暖通、精装修、幕墙、人防、预制装配、桥梁隧道道路、桩基基坑边坡、门窗楼梯保温防水、防火无障碍绿建。
+- **专业识图候选**（18 个专业包）：建筑、结构、塔吊布置、总图场地、安装、电气（含消防/弱点/智能化）、钢结构、市政、给排水暖通、精装修、幕墙、人防、预制装配、桥梁隧道道路、桩基基坑边坡、门窗楼梯保温防水、防火无障碍绿建。
 - **园林景观识图**：苗木图例/乔灌地被候选、铺装闭合域轻量候选、设计院图例快速校准、DWG 块名净化与 `--dwg-dxf-fallback` 自动转 DXF 复扫；全部 `final_quantity=false`。
 - **长度/面积/体积测量候选**：每条 `final_quantity=false`，不冒充工程量。
 - **规范/图集元数据定位**、图层/块语义、图纸变化对比、PDF 识图（本机类型分流 + 本地 OCR）。
@@ -103,8 +103,8 @@ scripts\demo.cmd        # 简明演示（扫描内置样例）
 ```
 
 已提供的 .cmd：`setup / deps_check / doctor / cad_scan / read_cad / convert_dwg /
-cad_validate / demo / cad_batch`，以及 17 个专业识图入口
-（`cad_descriptive_geometry / cad_structural_geometry / cad_site_geometry /
+cad_validate / demo / cad_batch`，以及 18 个专业识图入口
+（`cad_descriptive_geometry / cad_structural_geometry / cad_crane_geometry / cad_site_geometry /
 cad_mep_geometry / cad_electrical_geometry / cad_steel_geometry /
 cad_municipal_geometry / cad_hvac_plumbing_geometry /
 cad_interior_finish_geometry / cad_curtain_wall_geometry /
@@ -126,7 +126,7 @@ cad_fire_prevention_accessibility_green_energy / cad_landscape_geometry`）。
 | DWG→DXF 复扫（LibreDWG/ODA） | ⚠️ 可选后端（dwg2dxf/ODAFileConverter） | ⚠️ 可选后端（ODAFileConverter） | ⚠️ 可选后端（dwg2dxf/ODA） |
 | PDF 矢量文字坐标（pdftoppm） | ⚠️ 可选 `poppler` | ⚠️ 可选 `poppler`/conda | ✅ 系统包或 `poppler-utils` |
 | PDF 扫描 OCR（tesseract / ocr_image / pdf-inspector） | ⚠️ 可选 OCR 引擎 | ⚠️ 可选 OCR 引擎 | ⚠️ 可选 OCR 引擎 |
-| 17+1 类专业识图候选 | ✅ | ✅ | ✅ |
+| 18+1 类专业识图候选 | ✅ | ✅ | ✅ |
 | 测量候选（长度/面积/体积） | ✅ | ✅ | ✅ |
 | qto-project/v1 五件套联动 | ✅ | ✅ | ✅ |
 | 批量识图台账（Excel） | ✅ | ✅ | ✅ |

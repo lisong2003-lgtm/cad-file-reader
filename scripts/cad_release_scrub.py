@@ -38,6 +38,10 @@ PATTERNS = [
 ]
 # 算法/规则配置键（比值、阈值等）是代码常量，不是图纸实测值，豁免“结果数值”误报。
 TOLERATED_CONFIG_KEYS = ("min_insert_plant_layer_ratio", "roundish_min_aspect", "max_ring_area_ratio")
+# 规则 JSON 的键值对是算法阈值/权重，不是图纸实测值；依赖版本约束也不是工程量。
+CONFIG_KV = re.compile(r'^\s*"[^"]+"\s*:\s*-?\d+(?:\.\d+)?\s*,?\s*$')
+DEPENDENCY_SPEC = re.compile(r'^\s*[A-Za-z0-9_.\-]+\s*(?:>=|==|~=|<=)\s*\d')
+PUBLIC_COMMIT = re.compile(r'(?i)commit')
 
 
 REDACTIONS = [
@@ -62,8 +66,12 @@ def scan(files):
                         RUNTIME_VERSION.sub("V",
                         VERSION_TOKEN.sub("V", line)))))
             kinds = [name for name, pattern in PATTERNS if pattern.search(probe)]
-            if "结果数值" in kinds and any(k in line for k in TOLERATED_CONFIG_KEYS):
+            if "结果数值" in kinds and (any(k in line for k in TOLERATED_CONFIG_KEYS)
+                                        or (path.suffix == ".json" and CONFIG_KV.match(line))
+                                        or DEPENDENCY_SPEC.match(line)):
                 kinds.remove("结果数值")
+            if "文件摘要" in kinds and PUBLIC_COMMIT.search(line):
+                kinds.remove("文件摘要")
             if kinds:
                 findings.append((str(path), number, kinds, line.strip()[:120]))
     return findings

@@ -214,6 +214,25 @@ DECODERS = {
 GEOM_KINDS = ("line", "lwpoly")
 
 
+def _insert_worker_row(row, layer_name: str) -> list:
+    """把 ezdwg INSERT 行转成 worker 输出行（可单测，不依赖子进程）。
+
+    ezdwg 现行 9 字段：(handle, x, y, z, xscale, yscale, zscale, rotation_rad, block_name)。
+    旧版 8 字段没有块名，末位仍是 rotation_rad；块名为空时由上层如实标注缺失。
+    """
+    block_name = str(row[8] or "") if len(row) >= 9 else ""
+    rot = row[7] if len(row) >= 8 and isinstance(row[7], (int, float)) else None
+    rot_deg = math.degrees(float(rot)) if rot is not None else None
+    scales = [float(v) if isinstance(v, (int, float)) else None
+              for v in (row[4:7] if len(row) >= 7 else [])]
+    while len(scales) < 3:
+        scales.append(None)
+    point = [row[1] if isinstance(row[1], (int, float)) else None,
+             row[2] if isinstance(row[2], (int, float)) else None,
+             row[3] if len(row) > 3 and isinstance(row[3], (int, float)) else None]
+    return [row[0], block_name, point, layer_name, rot_deg, scales]
+
+
 def _worker(name: str, path: str) -> int:
     """子进程模式：只解一类对象，逐行输出 JSON，进程退出即彻底释放内存。"""
     import ezdwg  # noqa: F401
@@ -286,8 +305,7 @@ def _worker(name: str, path: str) -> int:
                 label = handle_layer_label(row[0])  # 与实体侧同一套标识，保证两处能对上
             out = [row[0], label, None, None]
         if name == "insert":
-            out = [row[0], str(row[-1] or ""), [row[1] if isinstance(row[1], (int, float)) else None,
-                                                  row[2] if isinstance(row[2], (int, float)) else None], layer_name]
+            out = _insert_worker_row(row, layer_name)
         if name == "line" and len(row) >= 6:
             out = [row[0], None, [row[1], row[2], row[4], row[5]], layer_name]
         if name == "lwpoly":
@@ -417,8 +435,21 @@ def dwg_records(path: str, want: set[str], per_stage: float, max_rows: int, log,
                     y = pt[1] if len(pt) > 1 else None
                     if not _rc_in_roi(x, y, roi):
                         continue
-                    recs.append({"kind": "INSERT", "text": r[1], "x": x, "y": y,
-                                 "layer": r[3] if len(r) > 3 else None})
+                    rec = {"kind": "INSERT", "text": r[1], "block_name": r[1],
+                           "x": x, "y": y,
+                           "z": pt[2] if len(pt) > 2 else None,
+                           "layer": r[3] if len(r) > 3 else None}
+                    if len(r) > 4 and r[4] is not None:
+                        rec["rotation"] = r[4]
+                    if len(r) > 5 and isinstance(r[5], (list, tuple)):
+                        scales = list(r[5]) + [None, None, None]
+                        rec["xscale"] = scales[0]
+                        rec["yscale"] = scales[1]
+                        rec["zscale"] = scales[2]
+                    # DWG 直读不提供 BLOCK 基点；明确标空，由下游决定是否只能用插入点。
+                    rec["base_point"] = None
+                    rec["base_point_source"] = "unavailable"
+                    recs.append(rec)
         log(f"块引用 {meta.get('insert_count', 0)} 个")
 
     rows = call("blocks", per_stage) if want_blocks else None
@@ -449,10 +480,12 @@ def _f(row, idx, comp):
 
 
 # ---------------------------------------------------------------- DXF（流式，不加载几何）
-def dxf_records(path: str, max_rows: int, log, roi=None) -> tuple[list[dict], list[str], list[str], dict]:
+def dxf_records(path: str, max_rows: int, log, roi=None,
+                include_insert: bool = False) -> tuple[list[dict], list[str], list[str], dict]:
     recs: list[dict] = []
     layers: set[str] = set()
     blocks: Counter = Counter()
+    block_bases: dict[str, dict] = {}
     notes: list[str] = []
     meta: dict = {}
     kind = None
@@ -475,8 +508,49 @@ def dxf_records(path: str, max_rows: int, log, roi=None) -> tuple[list[dict], li
                                  "x": xv, "y": yv,
                                  "layer": layer or None,
                                  "rotation": _num(buf.get("50"))})
+        if buf.get("_kind") == "BLOCK" and buf.get("2"):
+            name = str(buf.get("2") or "").strip()
+            if name:
+                bx, by = _num(buf.get("10")), _num(buf.get("20"))
+                block_bases[name.upper()] = {
+                    "name": name,
+                    "base_point": [bx if bx is not None else 0.0,
+                                   by if by is not None else 0.0],
+                }
         if buf.get("_kind") == "INSERT" and buf.get("2"):
-            blocks[buf["2"]] += 1
+            name = str(buf.get("2") or "").strip()
+            blocks[name] += 1
+            xv, yv = _num(buf.get("10")), _num(buf.get("20"))
+            if include_insert and sec == "ENTITIES" and name and not name.startswith("*") \
+                    and sane(xv, yv) and _rc_in_roi(xv, yv, roi):
+                sx, sy, sz = (_num(buf.get("41")), _num(buf.get("42")),
+                              _num(buf.get("43")))
+                rec = {
+                    "kind": "INSERT",
+                    "text": name,
+                    "block_name": name,
+                    "x": xv,
+                    "y": yv,
+                    "z": _num(buf.get("30")),
+                    "layer": layer or None,
+                    "rotation": _num(buf.get("50")) or 0.0,
+                    "xscale": sx if sx is not None else 1.0,
+                    "yscale": sy if sy is not None else 1.0,
+                    "zscale": sz if sz is not None else 1.0,
+                }
+                ext = (_num(buf.get("210")), _num(buf.get("220")), _num(buf.get("230")))
+                if any(v is not None for v in ext):
+                    rec["extrusion"] = [ext[0] if ext[0] is not None else 0.0,
+                                        ext[1] if ext[1] is not None else 0.0,
+                                        ext[2] if ext[2] is not None else 1.0]
+                bp = block_bases.get(name.upper())
+                if bp:
+                    rec["base_point"] = list(bp["base_point"])
+                    rec["base_point_source"] = "block_header"
+                else:
+                    rec["base_point"] = None
+                    rec["base_point_source"] = "missing_block_header"
+                recs.append(rec)
         buf = {}
         mtext_parts = []
 
@@ -491,11 +565,18 @@ def dxf_records(path: str, max_rows: int, log, roi=None) -> tuple[list[dict], li
                 continue
             if code == "0":
                 if val == "SECTION":
-                    kind = None
+                    # 不能置 None：紧随其后的 2/<段名> 依赖 kind=="SECTION" 才能
+                    # 记录当前段。置 None 会让 sec 永远为空，DXF 的 INSERT 全部
+                    # 被误判为“不在 ENTITIES 段”（2026-11-09 实测合成 DXF 复现）。
+                    kind = "SECTION"
+                    buf = {}
+                    mtext_parts = []
                     continue
                 flush()
                 kind = val
-                if val in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "INSERT"):
+                if val == "ENDSEC":
+                    sec = ""
+                if val in ("TEXT", "MTEXT", "ATTRIB", "ATTDEF", "INSERT", "BLOCK"):
                     buf = {"_kind": val}
                 else:
                     buf = {}
@@ -512,9 +593,24 @@ def dxf_records(path: str, max_rows: int, log, roi=None) -> tuple[list[dict], li
                 notes.append(f"文字数达上限 {max_rows}，已截断")
                 break
     flush()
+    # 单遍解析兜底：非标准 DXF 可能把 ENTITIES 放在 BLOCKS 之前。扫描结束后只对
+    # “缺块基点”的 INSERT 回填一次；找不到块头仍保持 null，不拿 (0,0) 冒充。
+    for rec in recs:
+        if rec.get("kind") != "INSERT" or rec.get("base_point") is not None:
+            continue
+        bp = block_bases.get(str(rec.get("block_name") or "").upper())
+        if bp:
+            rec["base_point"] = list(bp["base_point"])
+            rec["base_point_source"] = "block_header_backfill"
     meta["block_refs"] = dict(blocks.most_common(40))
     meta["insert_count"] = sum(blocks.values())
-    log(f"  流式解析 DXF：文字 {len(recs)} 条 / 图层 {len(layers)} 个")
+    used_bases = {k: v for k, v in block_bases.items() if k in {n.upper() for n in blocks}}
+    if used_bases:
+        meta["block_bases"] = {
+            v["name"]: list(v["base_point"])
+            for _k, v in sorted(used_bases.items())[:2000]
+        }
+    log(f"  流式解析 DXF：文字 {len(recs)} 条 / 图层 {len(layers)} 个 / 块引用 {meta['insert_count']} 个")
     return recs, sorted(layers), notes, meta
 
 
@@ -835,6 +931,53 @@ def circle_entities(path, budget, log, roi=None, min_radius=1.0, max_rows=None):
     return ents, notes
 
 
+def dxf_circle_entities(path, budget=None, log=None, roi=None, min_radius=1.0,
+                        max_rows=None):
+    """流式提取 DXF ENTITIES 段的 CIRCLE，返回 [x, y, r, layer]。
+
+    块定义里的 CIRCLE 不计入模型空间实体表；图例符号和原点杂点由调用方按
+    min_radius/图层再过滤。这里只描述“图上确实画了一个圆”，不推断用途。
+    """
+    notes: list[str] = []
+    ents: list[list] = []
+    sec = ""
+    kind = None
+    buf: dict = {}
+
+    def flush():
+        if kind != "CIRCLE" or sec != "ENTITIES":
+            return
+        xv, yv, rv = _num(buf.get("10")), _num(buf.get("20")), _num(buf.get("40"))
+        if rv is None or rv < min_radius or not sane(xv, yv, rv):
+            return
+        if not _rc_in_roi(xv, yv, roi):
+            return
+        ents.append([float(xv), float(yv), float(rv), str(buf.get("8") or "")])
+        if max_rows and len(ents) >= max_rows:
+            notes.append(f"圆实体达上限 {max_rows}，已截断")
+
+    with open(path, "r", errors="ignore", encoding="utf-8", newline=None) as fh:
+        it = iter(fh)
+        for a, b in zip(it, it):
+            code = a.strip()
+            val = b.rstrip("\r\n")
+            if code == "0":
+                flush()
+                kind = val
+                buf = {}
+                if max_rows and len(ents) >= max_rows:
+                    break
+            elif code == "2" and kind == "SECTION":
+                sec = val
+            elif kind == "CIRCLE" and code in ("8", "10", "20", "40"):
+                buf[code] = val
+    flush()
+    notes.append(f"圆实体 {len(ents)} 个（半径≥{min_radius:g}）")
+    if log:
+        log(f"圆实体 {len(ents)} 个")
+    return ents, notes
+
+
 def dxf_geometry_stream(path, include_layers=False, roi=None, max_rows=None):
     """流式按 group code 扫 DXF 抓 LINE / LWPOLYLINE（ezdxf 读不了时的兜底）。
 
@@ -1029,6 +1172,376 @@ def dxf_block_geometries(path, budget, log, max_rows=None):
         notes.append(f"DXF 块几何解码失败：{exc}")
     return out, notes
 
+
+
+# ---------------------------------------------------------------- 块几何展开（0.41.0）
+# 土建 cad_geometry.py 原先自己 import ezdwg、展开 INSERT 并做二维仿射。
+# 0.41.0 把这段能力收进 cad_scan：其他技能只消费本模块结果，不再各自解 DWG。
+# 注意：这里保留旧实现的坐标口径和 max_depth=8；DXF 与 DWG 两条路都输出同一结构。
+_STRUCT_MAX_DEPTH = 8
+_IDENT_MATRIX = (1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+
+
+def _struct_insert_matrix(values) -> tuple[float, float, float, float, float, float]:
+    """旧 cad_geometry._insert_matrix 的等价实现。
+
+    values=(ix, iy, iz, sx, sy, sz, rotation_rad)。只保留二维仿射，z 不影响平面线段。
+    """
+    ix, iy, _iz, sx, sy, _sz, rot = [float(x) for x in values]
+    return (sx * math.cos(rot), -sy * math.sin(rot),
+            sx * math.sin(rot), sy * math.cos(rot), ix, iy)
+
+
+def _struct_compose(a, b):
+    return (a[0] * b[0] + a[1] * b[2], a[0] * b[1] + a[1] * b[3],
+            a[2] * b[0] + a[3] * b[2], a[2] * b[1] + a[3] * b[3],
+            a[0] * b[4] + a[1] * b[5] + a[4],
+            a[2] * b[4] + a[3] * b[5] + a[5])
+
+
+def _struct_apply(pt, m):
+    return (m[0] * pt[0] + m[1] * pt[1] + m[4],
+            m[2] * pt[0] + m[3] * pt[1] + m[5])
+
+
+def _struct_segment(handle, kind, a, b, layer="", source_block="MODELSPACE"):
+    try:
+        if not all(math.isfinite(float(v)) for v in tuple(a) + tuple(b)):
+            return None
+        if abs(float(a[0]) - float(b[0])) + abs(float(a[1]) - float(b[1])) < 1e-4:
+            return None
+    except (TypeError, ValueError):
+        return None
+    return {"handle": handle, "kind": kind,
+            "geometry": [float(a[0]), float(a[1]), float(b[0]), float(b[1])],
+            "layer": str(layer or ""), "source_block": source_block}
+
+
+def _struct_block_record(name, base_point=None, insert=None, rotation_deg=None,
+                         scale=None, layer=None, parent=None, handle=None, source="block_definition"):
+    return {"type": "block", "block_name": str(name or ""), "name": str(name or ""),
+            "base_point": list(base_point) if isinstance(base_point, (list, tuple)) else None,
+            "insert": list(insert) if isinstance(insert, (list, tuple)) else None,
+            "rotation": rotation_deg, "rotation_deg": rotation_deg,
+            "scale": list(scale) if isinstance(scale, (list, tuple)) else None,
+            "layer": layer, "parent": parent, "handle": handle, "source": source}
+
+
+def _struct_units_from_insunits(value):
+    table = {1: (25.4, "inch"), 2: (304.8, "foot"), 4: (1.0, "mm"),
+             5: (10.0, "cm"), 6: (1000.0, "m")}
+    try:
+        return table.get(int(value or 0))
+    except Exception:
+        return None
+
+
+def _dxf_expand_block_geometry(path, budget, log):
+    """DXF 等价展开：模型空间直画实体 + 顶层 INSERT 的递归块展开。"""
+    import ezdxf
+    notes = []
+    segments, blocks = [], []
+    units = {"drawing_unit": None, "drawing_mm_per_unit": None, "source": "DXF $INSUNITS"}
+    with stage(budget) as dl:
+        doc = ezdxf.readfile(str(path))
+        dl.check()
+        unit_info = _struct_units_from_insunits(doc.header.get("$INSUNITS"))
+        if unit_info:
+            units["drawing_mm_per_unit"], units["drawing_unit"] = unit_info
+
+        def ehandle(entity):
+            raw = getattr(entity.dxf, "handle", None)
+            if raw in (None, ""):
+                return None
+            try:
+                return int(str(raw), 16)
+            except Exception:
+                return str(raw)
+
+        def emit_entity(entity, matrix, source_block):
+            typ = entity.dxftype()
+            layer = str(getattr(entity.dxf, "layer", "") or "")
+            handle = ehandle(entity)
+            if typ == "LINE":
+                s, t = entity.dxf.start, entity.dxf.end
+                seg = _struct_segment(handle, "LINE",
+                                      _struct_apply((float(s.x), float(s.y)), matrix),
+                                      _struct_apply((float(t.x), float(t.y)), matrix),
+                                      layer, source_block)
+                if seg:
+                    segments.append(seg)
+                return 0
+            if typ in ("LWPOLYLINE", "POLYLINE"):
+                try:
+                    if typ == "LWPOLYLINE":
+                        pts = [(float(p[0]), float(p[1])) for p in entity.get_points("xy")]
+                    else:
+                        pts = [(float(v.dxf.location.x), float(v.dxf.location.y)) for v in entity.vertices]
+                except Exception:
+                    return 0
+                n = 0
+                for a, b in zip(pts, pts[1:]):
+                    seg = _struct_segment(handle, typ,
+                                          _struct_apply(a, matrix), _struct_apply(b, matrix),
+                                          layer, source_block)
+                    if seg:
+                        segments.append(seg)
+                        n += 1
+                return n
+            return 0
+
+        # 旧实现先输出模型空间直画几何，再按顶层 INSERT 顺序展开块。
+        direct = []
+        top_inserts = []
+        for entity in doc.modelspace():
+            dl.check()
+            if entity.dxftype() in ("LINE", "LWPOLYLINE", "POLYLINE"):
+                direct.append(entity)
+            elif entity.dxftype() in ("INSERT", "MINSERT"):
+                top_inserts.append(entity)
+        for entity in direct:
+            emit_entity(entity, _IDENT_MATRIX, "MODELSPACE")
+
+        block_by_name = {}
+        for block in doc.blocks:
+            name = str(block.name or "").strip()
+            if not name or name.startswith("*"):
+                continue
+            record = getattr(getattr(block, "block_record", None), "dxf", None)
+            block_dxf = getattr(getattr(block, "block", None), "dxf", None)
+            # ezdxf 的块基点放在 BLOCK 实体上，BLOCK_RECORD 上只有句柄/名称；
+            # 两处都取，避免把可得的基点误报成缺失。
+            bp = getattr(block_dxf, "base_point", None) if block_dxf is not None else None
+            bp2 = [float(bp[0]), float(bp[1])] if bp is not None else None
+            block_by_name[name] = block
+            blocks.append(_struct_block_record(name, base_point=bp2,
+                                               handle=str(getattr(record, "handle", "") or "") or None,
+                                               source="dxf_block_definition"))
+
+        for top in top_inserts:
+            name = str(getattr(top.dxf, "name", "") or "")
+            if name not in block_by_name:
+                notes.append(f"顶层块引用 {name or '<空名>'} 无同名块定义，已跳过")
+                continue
+            try:
+                top_matrix = top.matrix44()
+                m = (float(top_matrix.m11), float(top_matrix.m12),
+                     float(top_matrix.m21), float(top_matrix.m22),
+                     float(top_matrix.m41), float(top_matrix.m42))
+            except Exception:
+                # 没有 matrix44 时退回旧式二维矩阵。
+                m = _struct_insert_matrix((top.dxf.insert.x, top.dxf.insert.y, 0,
+                                           getattr(top.dxf, "xscale", 1.0), getattr(top.dxf, "yscale", 1.0), 1.0,
+                                           math.radians(float(getattr(top.dxf, "rotation", 0.0) or 0.0))))
+            blocks.append(_struct_block_record(
+                name, insert=[float(top.dxf.insert.x), float(top.dxf.insert.y)],
+                rotation_deg=float(getattr(top.dxf, "rotation", 0.0) or 0.0),
+                scale=[float(getattr(top.dxf, "xscale", 1.0) or 1.0), float(getattr(top.dxf, "yscale", 1.0) or 1.0), 1.0],
+                layer=str(getattr(top.dxf, "layer", "") or ""), handle=ehandle(top), source="dxf_top_insert"))
+            stack = [(block_by_name[name], m, 0, name)]
+            visited = set()
+            while stack:
+                block, matrix, depth, source_block = stack.pop()
+                if block.name in visited or depth > _STRUCT_MAX_DEPTH:
+                    continue
+                visited.add(block.name)
+                nested = []
+                for entity in block:
+                    dl.check()
+                    if entity.dxftype() in ("LINE", "LWPOLYLINE", "POLYLINE"):
+                        emit_entity(entity, matrix, source_block)
+                    elif entity.dxftype() in ("INSERT", "MINSERT"):
+                        nested.append(entity)
+                for child in nested:
+                    child_name = str(getattr(child.dxf, "name", "") or "")
+                    if child_name not in block_by_name:
+                        continue
+                    try:
+                        cm = child.matrix44()
+                        local = (float(cm.m11), float(cm.m12), float(cm.m21), float(cm.m22),
+                                 float(cm.m41), float(cm.m42))
+                        child_matrix = _struct_compose(matrix, local)
+                    except Exception:
+                        child_matrix = _struct_compose(matrix, _struct_insert_matrix((
+                            child.dxf.insert.x, child.dxf.insert.y, 0,
+                            getattr(child.dxf, "xscale", 1.0), getattr(child.dxf, "yscale", 1.0), 1.0,
+                            math.radians(float(getattr(child.dxf, "rotation", 0.0) or 0.0)))))
+                    blocks.append(_struct_block_record(
+                        child_name, insert=[float(child.dxf.insert.x), float(child.dxf.insert.y)],
+                        rotation_deg=float(getattr(child.dxf, "rotation", 0.0) or 0.0),
+                        scale=[float(getattr(child.dxf, "xscale", 1.0) or 1.0), float(getattr(child.dxf, "yscale", 1.0) or 1.0), 1.0],
+                        layer=str(getattr(child.dxf, "layer", "") or ""), parent=source_block,
+                        handle=ehandle(child), source="dxf_nested_insert"))
+                    stack.append((block_by_name[child_name], child_matrix, depth + 1,
+                                  f"{source_block}/{child_name}"))
+    log(f"DXF 块几何展开：{len(segments)} 段，块记录 {len(blocks)} 条")
+    return {"segments": segments, "blocks": blocks, "units": units, "notes": notes}
+
+
+def _dwg_expand_block_geometry(path, budget, log):
+    """DWG 等价展开：保留旧 cad_geometry.py 的 raw 解码与二维变换口径。
+
+    这一步是能力上移，不修旧算法。旧行为要点：
+      * 模型空间直画 LINE/LWPOLYLINE/POLYLINE_2D 原样输出；
+      * 每个顶层 INSERT 独立 visited，嵌套同名块只走第一条路径；
+      * max_depth=8；LWPOLYLINE 只连顶点、不展开 bulge、不补闭合边。
+    """
+    import ezdwg  # noqa: F401  (触发 C 扩展加载)
+    from ezdwg import raw
+    notes = []
+    segments, blocks = [], []
+    units = {"drawing_unit": None, "drawing_mm_per_unit": None, "source": "DWG 未声明"}
+    try:
+        with stage(budget):
+            doc = ezdwg.read(path)
+            lines = list(raw.decode_line_entities(path) or [])
+            lwps = list(raw.decode_lwpolyline_entities(path) or [])
+            pols = list(raw.decode_polyline_2d_with_vertices(path) or [])
+            inserts = list(raw.decode_insert_entities(path) or [])
+
+            layer_names = {}
+            try:
+                layer_names = {int(h): str(n or "") for h, n in (raw.decode_layer_names(path) or [])}
+            except Exception:
+                pass
+            all_handles = [int(r[0]) for r in lines + lwps + pols + inserts if r and isinstance(r[0], int)]
+            layer_by_handle = {}
+            try:
+                for ent_h, layer_h in raw.decode_object_entity_layer_handles(path, all_handles) or []:
+                    layer_by_handle[int(ent_h)] = layer_names.get(int(layer_h), "")
+            except Exception:
+                pass
+
+            block_by_name = {}
+            for handle, name in raw.decode_block_header_names(path) or []:
+                nm = str(name or "").strip()
+                if nm and nm not in block_by_name:
+                    block_by_name[nm] = int(handle)
+                    blocks.append(_struct_block_record(nm, handle=handle, source="dwg_block_definition"))
+
+            line_by_owner, lwp_by_owner, pol_by_owner = defaultdict(list), defaultdict(list), defaultdict(list)
+            direct = []
+            for kind, rows in (("LINE", lines), ("LWPOLYLINE", lwps), ("POLYLINE_2D", pols)):
+                for row in rows:
+                    try:
+                        placement = doc.entity_placement(int(row[0]))
+                    except Exception:
+                        continue
+                    if placement is None:
+                        continue
+                    if placement[0] == 0 and placement[1] is not None:
+                        {"LINE": line_by_owner, "LWPOLYLINE": lwp_by_owner, "POLYLINE_2D": pol_by_owner}[kind][int(placement[1])].append(row)
+                    elif placement[0] == 2:
+                        direct.append((kind, row))
+            insert_by_owner, top_inserts = defaultdict(list), []
+            for row in inserts:
+                try:
+                    placement = doc.entity_placement(int(row[0]))
+                except Exception:
+                    continue
+                if placement is None:
+                    continue
+                if placement[0] == 0 and placement[1] is not None:
+                    insert_by_owner[int(placement[1])].append(row)
+                elif placement[0] == 2:
+                    nm = str(row[-1] or "")
+                    if nm in block_by_name:
+                        top_inserts.append((row, block_by_name[nm]))
+
+            def emit(kind, row, matrix, source_block="MODELSPACE"):
+                try:
+                    handle = int(row[0])
+                except Exception:
+                    handle = row[0]
+                layer = layer_by_handle.get(int(row[0]), "") if isinstance(row[0], int) else ""
+                if kind == "LINE":
+                    seg = _struct_segment(handle, kind,
+                                          _struct_apply((float(row[1]), float(row[2])), matrix),
+                                          _struct_apply((float(row[4]), float(row[5])), matrix),
+                                          layer, source_block)
+                    if seg:
+                        segments.append(seg)
+                    return
+                pts = row[2]
+                if kind == "POLYLINE_2D":
+                    pts = [(float(p[0]), float(p[1])) for p in pts]
+                for i in range(1, len(pts)):
+                    seg = _struct_segment(handle, kind,
+                                          _struct_apply((float(pts[i - 1][0]), float(pts[i - 1][1])), matrix),
+                                          _struct_apply((float(pts[i][0]), float(pts[i][1])), matrix),
+                                          layer, source_block)
+                    if seg:
+                        segments.append(seg)
+
+            for kind, row in direct:
+                emit(kind, row, _IDENT_MATRIX)
+
+            for row, block_handle in top_inserts:
+                top_name = str(row[-1] or "BLOCK")
+                try:
+                    m = _struct_insert_matrix(row[1:8])
+                    blocks.append(_struct_block_record(
+                        top_name, insert=[float(row[1]), float(row[2])],
+                        rotation_deg=math.degrees(float(row[7])),
+                        scale=[float(row[4]), float(row[5]), float(row[6])],
+                        layer=layer_by_handle.get(int(row[0]), ""),
+                        handle=int(row[0]), source="dwg_top_insert"))
+                except Exception:
+                    continue
+                stack = [(block_handle, m, 0, top_name)]
+                visited = set()
+                while stack:
+                    owner, matrix, depth, source_block = stack.pop()
+                    if owner in visited or depth > _STRUCT_MAX_DEPTH:
+                        continue
+                    visited.add(owner)
+                    for kind, group in (("LINE", line_by_owner), ("LWPOLYLINE", lwp_by_owner),
+                                        ("POLYLINE_2D", pol_by_owner)):
+                        for entity_row in group.get(owner, []):
+                            emit(kind, entity_row, matrix, source_block)
+                    for nested in insert_by_owner.get(owner, []):
+                        nm = str(nested[-1] or "")
+                        if nm not in block_by_name:
+                            continue
+                        try:
+                            local = _struct_insert_matrix(nested[1:8])
+                            blocks.append(_struct_block_record(
+                                nm, insert=[float(nested[1]), float(nested[2])],
+                                rotation_deg=math.degrees(float(nested[7])),
+                                scale=[float(nested[4]), float(nested[5]), float(nested[6])],
+                                layer=layer_by_handle.get(int(nested[0]), ""),
+                                parent=source_block, handle=int(nested[0]),
+                                source="dwg_nested_insert"))
+                        except Exception:
+                            local = _IDENT_MATRIX
+                        stack.append((block_by_name[nm], _struct_compose(matrix, local),
+                                      depth + 1, f"{source_block}/{nm}"))
+            if not blocks:
+                notes.append("DWG 未解出块定义/块引用；只输出模型空间直画几何")
+            if not segments:
+                notes.append("DWG 块几何展开为空；请用 --with-geom 查看模型空间几何")
+    except Exception as exc:
+        notes.append(f"DWG 块几何展开失败：{type(exc).__name__}: {exc}")
+    log(f"DWG 块几何展开：{len(segments)} 段，块记录 {len(blocks)} 条")
+    return {"segments": segments, "blocks": blocks, "units": units, "notes": notes}
+
+
+def expand_block_geometry(path, budget: float = 60.0, log=None):
+    """统一入口：展开 DWG/DXF 模型空间直画实体与 INSERT 块几何。
+
+    返回 {"segments":[{handle,kind,geometry,layer,source_block}], "blocks":[...],
+          "units":{...}, "notes":[...]}。
+    只出几何候选；不识别构件、不算量，也不改变旧技能的坐标口径。
+    """
+    log = log or (lambda _msg: None)
+    suffix = Path(str(path)).suffix.lower()
+    if suffix == ".dxf":
+        return _dxf_expand_block_geometry(path, budget, log)
+    if suffix == ".dwg":
+        return _dwg_expand_block_geometry(path, budget, log)
+    return {"segments": [], "blocks": [],
+            "units": {"drawing_unit": None, "drawing_mm_per_unit": None, "source": "unsupported"},
+            "notes": [f"不支持的块几何输入格式：{suffix or '<none>'}"]}
 
 def _dwg_entity_lines_by_handle(path, budget, notes, roi=None, max_rows=None):
     """DWG 只解 LINE/LWPOLYLINE，返回 {实体句柄: (线段列表, 图层集合)}。
@@ -1716,6 +2229,10 @@ def main():
     ap.add_argument("--with-insert", action="store_true", help="解块引用统计")
     ap.add_argument("--with-blocks", action="store_true", help="解块定义清单（大图较慢）")
     ap.add_argument("--with-block-geom", action="store_true", help="提取块定义内部几何，供几何指纹识图（DXF 全量；DWG 走短预算试探，超时自动回退近邻几何；需 --with-geom）")
+    ap.add_argument("--with-block-expand", action="store_true",
+                    help="展开模型空间直画实体与 INSERT 块内 LINE/LWPOLYLINE 几何，写入 --detail-json 的 block_geometry[]；每张图只读一次")
+    ap.add_argument("--block-expand-max-segments", type=int, default=200000,
+                    help="块几何展开段数上限，默认 200000；超限截断并写 notes/review")
     ap.add_argument("--detail-json", default=None,
                     help="额外写出 text_records/hits/geometry 的 detail JSON，供规范目录与规则解读使用")
     ap.add_argument("--only", default=None, help="只要这些类别，逗号分隔：梁,板,柱,墙,基础,门窗")
@@ -1757,6 +2274,8 @@ def main():
     ap.add_argument("--dwg-dxf-fallback", action="store_true",
                     help="DWG 块名解码为空/乱码时，自动转 DXF 后复扫一层（较稳，慢一些；CAD_DWG_DXF_FALLBACK=1 可默认开启）")
     args = ap.parse_args()
+    if args.with_block_expand and not args.detail_json:
+        print("[提示] --with-block-expand 的结果写入 --detail-json；未指定详情文件，本次展开结果不会落盘。", file=sys.stderr)
 
     if args.full or args.with_evidence:
         os.environ["CAD_CONCISE"] = "0"
@@ -1837,6 +2356,7 @@ def main():
     seg_files: list[list] = []
     gents_all: list = []
     seg_layers_files: list[list] = []
+    block_geometry_entries: list[dict] = []
     sheet_base = 0
     partial = roi is not None or sheet is not None
 
@@ -1857,6 +2377,44 @@ def main():
             notes.append(f"{f.name}: 读取失败 {e}")
             continue
         fmt = detect_format(head, f.suffix.lower())
+        if args.with_block_expand and fmt in ("DWG", "DXF"):
+            block_limit = max(1, int(args.block_expand_max_segments or 200000))
+            try:
+                block_budget = args.geom_budget if args.geom_budget and args.geom_budget > 0 else args.budget
+                expanded = expand_block_geometry(f, budget=block_budget, log=log)
+                block_segments = list(expanded.get("segments") or [])
+                block_notes = list(expanded.get("notes") or [])
+                truncated = len(block_segments) > block_limit
+                if truncated:
+                    block_segments = block_segments[:block_limit]
+                    msg = f"块几何展开 {len(expanded.get('segments') or [])} 段，超过上限 {block_limit}，已截断"
+                    block_notes.append(msg)
+                    notes.append(f"{f.name}: {msg}")
+                entry = {
+                    "source_path": str(f.resolve()),
+                    "segments": block_segments,
+                    "blocks": list(expanded.get("blocks") or []),
+                    "units": expanded.get("units") or {},
+                    "notes": block_notes,
+                    "truncated": truncated,
+                }
+                if truncated:
+                    entry["review"] = [{
+                        "type": "block_geometry_truncated",
+                        "reason": f"块几何段数超过安全上限 {block_limit}，仅保留前 {block_limit} 段；后续候选不完整，需缩小范围或分图复核",
+                        "evidence": {"limit": block_limit, "original_segments": len(expanded.get("segments") or [])},
+                    }]
+                block_geometry_entries.append(entry)
+            except Exception as exc:
+                msg = f"块几何展开失败：{type(exc).__name__}: {exc}"
+                notes.append(f"{f.name}: {msg}")
+                block_geometry_entries.append({
+                    "source_path": str(f.resolve()), "segments": [], "blocks": [],
+                    "units": {}, "notes": [msg], "truncated": False,
+                    "review": [{"type": "block_geometry_failed", "reason": msg, "evidence": {"exception": type(exc).__name__}}],
+                })
+        elif args.with_block_expand and fmt not in ("DWG", "DXF"):
+            notes.append(f"{f.name}: --with-block-expand 仅支持 DWG/DXF，当前格式 {fmt} 已跳过")
         cached = None
         digest = None
         cache_read_ms = 0.0
@@ -1892,13 +2450,16 @@ def main():
             file_sheet_count = int(cached.get("sheet_count") or len(local_sheets))
             gsegs = list(cached.get("segs") or []) if args.with_geom else []
             glayers = list(cached.get("seg_layers") or []) if args.with_geom_layer else None
-            if args.with_geom and fmt == "DWG":
+            if args.with_geom and fmt in ("DWG", "DXF"):
                 # 圆实体不入 sqlite 缓存（表结构保持稳定），缓存命中时现解一遍；
                 # 解码有预算护栏，代价小。
                 gb = args.geom_budget if args.geom_budget and args.geom_budget > 0 else args.budget
                 gm = args.geom_max_rows if args.geom_max_rows and args.geom_max_rows > 0 else None
                 try:
-                    gents, en = circle_entities(str(f), gb, log, max_rows=gm)
+                    if fmt == "DXF":
+                        gents, en = dxf_circle_entities(str(f), gb, log, max_rows=gm)
+                    else:
+                        gents, en = circle_entities(str(f), gb, log, max_rows=gm)
                     notes += [f"{f.name}: {x}" for x in en]
                 except Exception as e:
                     notes.append(f"{f.name}: 圆实体提取失败 {type(e).__name__} {e}")
@@ -1909,7 +2470,7 @@ def main():
             if fmt == "DXF":
                 try:
                     de_roi = roi if cache_dir is None else None
-                    recs, layers, n, meta = dxf_records(str(f), args.max_rows, log, roi=de_roi)
+                    recs, layers, n, meta = dxf_records(str(f), args.max_rows, log, roi=de_roi, include_insert=args.with_insert)
                 except Exception as e:
                     n, recs, layers, meta = [f"DXF 解析失败：{e}"], [], [], {}
             else:
@@ -1936,7 +2497,7 @@ def main():
                 if dxf_path:
                     try:
                         fdx = Path(dxf_path)
-                        recs2, layers2, n2, meta2 = dxf_records(str(fdx), args.max_rows, log, roi=de_roi)
+                        recs2, layers2, n2, meta2 = dxf_records(str(fdx), args.max_rows, log, roi=de_roi, include_insert=args.with_insert)
                         if recs2 or layers2 or meta2:
                             recs, layers, meta, n = recs2, layers2, meta2, list(n2)
                             fallback_dxf = fdx
@@ -2013,9 +2574,12 @@ def main():
                 glayers = glayers if args.with_geom_layer else None
                 file_notes.extend(gn)
                 notes += [f"{f.name}: {x}" for x in gn]
-                if fmt == "DWG":
+                if fmt in ("DWG", "DXF"):
                     try:
-                        gents, en = circle_entities(str(f), gb, log, max_rows=gm)
+                        if fmt == "DXF":
+                            gents, en = dxf_circle_entities(str(f), gb, log, max_rows=gm)
+                        else:
+                            gents, en = circle_entities(str(f), gb, log, max_rows=gm)
                         file_notes.extend(en)
                         notes += [f"{f.name}: {x}" for x in en]
                     except Exception as e:
@@ -2267,6 +2831,7 @@ def main():
         detail["geometry_segments"] = seg_files if args.with_geom else []
         detail["geometry_layers"] = seg_layers_files if args.with_geom_layer else []
         detail["geometry_entities"] = gents_all if args.with_geom else []
+        detail["block_geometry"] = block_geometry_entries if args.with_block_expand else []
         detail_path = Path(args.detail_json)
         detail_path.parent.mkdir(parents=True, exist_ok=True)
         detail_path.write_text(

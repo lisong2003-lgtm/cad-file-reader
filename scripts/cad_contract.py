@@ -15,6 +15,23 @@ from pathlib import Path
 from typing import Any
 
 CONTRACT_SCHEMA = "cad-file-reader/v0"
+# 契约版本与业务 schema 解耦：schema 仍是 cad-file-reader/v0（下游兼容），
+# v1 只追加溯源字段（contract_id/source_sha256/reader_version/run_manifest）。
+CONTRACT_VERSION = "cad-contract/v1"
+
+_READER_VERSION: str | None = None
+
+
+def reader_version() -> str:
+    """读取本技能 manifest.json 的版本号；读不到时如实返回 unknown。"""
+    global _READER_VERSION
+    if _READER_VERSION is None:
+        try:
+            manifest = Path(__file__).resolve().parents[1] / "manifest.json"
+            _READER_VERSION = str(json.loads(manifest.read_text(encoding="utf-8")).get("version") or "unknown")
+        except Exception:
+            _READER_VERSION = "unknown"
+    return _READER_VERSION
 
 
 def _concise_default() -> bool:
@@ -46,6 +63,14 @@ REASON_NOTES = {
     "low_confidence_inference": "低置信度推断，需人工复核",
 }
 CANDIDATE_KINDS = ("text", "block", "line", "polyline", "route", "room", "device", "measurement")
+# 专项候选的关键结论原样带进契约行，避免下游只能看到通用字段而丢掉塔吊型号/臂长状态。
+PASSTHROUGH_FIELDS = (
+    "crane_id", "center_xy_m", "center_status", "insert_xyz_mm", "rotation_deg",
+    "transform_status", "model", "model_text", "model_status", "model_ambiguity",
+    "jib_length_m", "jib_length_source", "jib_conflict_values", "radius_circles_m",
+    "area_drawing_units2", "source_block", "review_note", "source", "handle",
+    "entity_kind", "base_point", "insert", "scale", "parent",
+)
 
 SECTION_KINDS = {
     # 描述几何/装饰
@@ -107,6 +132,7 @@ SECTION_KINDS = {
     # 结构识图
     "rebars": "text",
     "structural_geometry": "line",
+    "blocks": "block",
     # 总图/场地识图
     "site_geometry": "line",
     # 园林/景观识图
@@ -115,6 +141,8 @@ SECTION_KINDS = {
     "plant_block_fingerprints": "block",
     "plant_schedule_links": "text",
     "paving_closed_areas": "polyline",
+    "paving_rings": "polyline",
+    "block_refs": "block",
     "green_area_candidates": "polyline",
     "pdf_geometry_candidates": "polyline",
     "hardscape": "text",
@@ -124,6 +152,10 @@ SECTION_KINDS = {
     "curtain_wall_geometry": "line",
     "civil_defense_geometry": "line",
     "precast_geometry": "line",
+    # 塔吊布置（crane-layout；纯追加，既有 payload 不含这些段落）
+    "towers": "block",
+    "model_candidates": "text",
+    "jib_evidence": "text",
 }
 
 
@@ -219,7 +251,7 @@ def _evidence(row: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _value(row: dict[str, Any]) -> float | str | None:
-    for key in ("value", "len_mm", "length_drawing_units", "area_drawing_units"):
+    for key in ("value", "len_mm", "length_drawing_units", "area_drawing_units", "area_drawing_units2"):
         value = row.get(key)
         if _is_number(value):
             return float(value)
@@ -369,9 +401,12 @@ def _candidate(
         "discipline_refs": row.get("discipline_refs"),
         "confidence_scores": row.get("confidence_scores"),
     }
+    for extra in PASSTHROUGH_FIELDS:
+        if row.get(extra) is not None:
+            full[extra] = row[extra]
     if not concise:
         return full
-    return {
+    concise_row = {
         "id": candidate_id,
         "kind": kind,
         "value": value,
@@ -398,10 +433,112 @@ def _candidate(
         "discipline_refs": row.get("discipline_refs") if isinstance(row.get("discipline_refs"), list) else [],
         "confidence_scores": row.get("confidence_scores") if isinstance(row.get("confidence_scores"), dict) else {},
     }
+    for extra in PASSTHROUGH_FIELDS:
+        if row.get(extra) is not None:
+            concise_row[extra] = row[extra]
+    return concise_row
 
 
-def contractize_payload(payload: dict[str, Any], source: Any = None, concise: bool | None = None) -> dict[str, Any]:
-    """为已有识图 payload 追加 `contract` 字段；不改写既有业务数组。"""
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _source_sha256(source: Any, source_path: Any, payload: dict[str, Any]) -> tuple[str | None, str]:
+    """返回 (哈希, 依据)。多源时按文件名排序后对 `name:sha` 求总哈希，不伪造单图哈希。"""
+    candidates: list[Path] = []
+    if source_path:
+        candidates.append(Path(str(source_path)))
+    if isinstance(source, (str, Path)) and str(source):
+        candidates.append(Path(str(source)))
+    for item in payload.get("source_paths") or []:
+        if isinstance(item, (str, Path)):
+            candidates.append(Path(str(item)))
+    existing: dict[str, Path] = {}
+    for cand in candidates:
+        try:
+            if cand.is_file():
+                existing[str(cand.resolve())] = cand
+        except OSError:
+            continue
+    if not existing:
+        return None, "source_not_found"
+    paths = [existing[k] for k in sorted(existing)]
+    if len(paths) == 1:
+        return _sha256_file(paths[0]), "computed"
+    lines = [f"{p.name}:{_sha256_file(p)}" for p in paths]
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest(), "computed_bundle"
+
+
+_PATH_KEYS = {
+    "source_path", "source_paths", "source_file", "source_files",
+    "input_path", "absolute_path", "file_path",
+}
+
+
+def _strip_volatile_paths(value: Any) -> Any:
+    """递归去掉本机路径字段；只影响 contract_id 的摘要，不改写业务 payload。"""
+    if isinstance(value, dict):
+        return {k: _strip_volatile_paths(v) for k, v in value.items() if k not in _PATH_KEYS}
+    if isinstance(value, list):
+        return [_strip_volatile_paths(v) for v in value]
+    return value
+
+
+def _content_digest(payload: dict[str, Any]) -> str:
+    # 排除本机绝对路径与运行时间，保证同一份图纸在不同机器上得到同一 contract_id。
+    clean = {k: v for k, v in payload.items() if k not in ("contract", "generated_at")}
+    clean = _strip_volatile_paths(clean)
+    blob = json.dumps(clean, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _payload_coordinate_unit(payload: dict) -> tuple:
+    """从 payload 提取坐标单位；提取不到返回空串（不猜）。"""
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    for raw in (payload.get("coordinate_unit"), meta.get("coordinate_unit")):
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip(), payload.get("unit_scale") or meta.get("unit_scale")
+    # 园林/场地几何把单位写在 payload["units"]（drawing_unit + drawing_mm_per_unit），
+    # 与 block_geometry.units 同构；这里一并消费，避免契约缺单位。
+    units = payload.get("units") if isinstance(payload.get("units"), dict) else {}
+    if units:
+        name = units.get("drawing_unit")
+        try:
+            mm_f = float(units.get("drawing_mm_per_unit"))
+        except (TypeError, ValueError):
+            mm_f = None
+        if mm_f == 1.0:
+            return "mm", None
+        if mm_f:
+            return str(name or "unknown"), mm_f
+    for item in payload.get("block_geometry") or []:
+        if not isinstance(item, dict):
+            continue
+        units = item.get("units") if isinstance(item.get("units"), dict) else {}
+        name = units.get("drawing_unit")
+        try:
+            mm_f = float(units.get("drawing_mm_per_unit"))
+        except (TypeError, ValueError):
+            continue
+        if mm_f == 1.0:
+            return "mm", None
+        if mm_f:
+            return str(name or "unknown"), mm_f
+    return "", None
+
+
+def contractize_payload(payload: dict[str, Any], source: Any = None, concise: bool | None = None,
+                        *, source_path: Any = None, run_info: dict[str, Any] | None = None) -> dict[str, Any]:
+    """为已有识图 payload 追加 `contract` 字段；不改写既有业务数组。
+
+    v1 只追加溯源字段，不改变 candidates/review_candidates 的既有结构。
+    contract_id 只由源图哈希 + 业务内容摘要 + 图号/专业决定，同输入必得同 ID；
+    真实墙钟时间只进 run_manifest，不参与 ID。
+    """
     if concise is None:
         concise = _concise_default()
     if not isinstance(payload, dict):
@@ -435,15 +572,50 @@ def contractize_payload(payload: dict[str, Any], source: Any = None, concise: bo
         "candidate_count": len(main),
         "duplicate_candidate": sum(1 for row in candidates if "duplicate_candidate" in row["review_reasons"]),
     }
+    sha, sha_reason = _source_sha256(source, source_path, payload)
+    rv = reader_version()
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    drawing_no = payload.get("drawing_no") or meta.get("drawing_no")
+    discipline = payload.get("discipline") or meta.get("discipline")
+    seed = json.dumps({
+        "source_sha256": sha,
+        "content_sha256": _content_digest(payload),
+        "drawing_no": drawing_no,
+        "discipline": discipline,
+        "reader_version": rv,
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    contract_id = "cadc1-" + hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+    unit, unit_scale = _payload_coordinate_unit(payload)
+    info = run_info or {}
+    payload.setdefault("provenance", "reader")
     payload["contract"] = {
         "schema": CONTRACT_SCHEMA,
+        "provenance": "reader",
+        "contract_version": CONTRACT_VERSION,
+        "contract_id": contract_id,
         "source": source,
+        "source_sha256": sha,
+        "source_sha256_reason": sha_reason,
+        "reader_version": rv,
         "origin_schema": origin_schema,
+        "coordinate_unit": unit,
+        "unit_scale": unit_scale,
         "summary": summary,
         "review_reasons": REVIEW_REASONS,
         "candidates": main,
         "review_candidates": review,
         "boundary": "识图候选与测量候选，final_quantity=false；不输出最终工程量、材料量、造价或结算量。",
+        "run_manifest": {
+            "command": info.get("command"),
+            "argv": info.get("argv"),
+            "started_at": info.get("started_at"),
+            "finished_at": info.get("finished_at"),
+            "input_kind": info.get("input_kind"),
+            "reader_version": rv,
+            "source_sha256": sha,
+            "source_sha256_reason": sha_reason,
+            "note": "仅记录运行参数与时间；不包含图纸文字、坐标或几何内容。",
+        },
     }
     return payload
 
@@ -458,6 +630,18 @@ def validate_contract_payload(data: dict[str, Any]) -> list[str]:
         return ["缺少 contract 对象"]
     if contract.get("schema") != CONTRACT_SCHEMA:
         errors.append("contract.schema 必须是 cad-file-reader/v0")
+    # v1 溯源字段为可选；存在即校验格式，缺省时保持旧契约可读。
+    if "contract_version" in contract and contract.get("contract_version") != CONTRACT_VERSION:
+        errors.append("contract.contract_version 必须是 cad-contract/v1")
+    if contract.get("contract_id") is not None and (
+        not isinstance(contract.get("contract_id"), str) or not contract.get("contract_id", "").startswith("cadc1-")
+    ):
+        errors.append("contract.contract_id 必须是 cadc1- 前缀字符串")
+    sha = contract.get("source_sha256")
+    if sha is not None and (not isinstance(sha, str) or len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha)):
+        errors.append("contract.source_sha256 必须是 64 位小写十六进制或 null")
+    if "run_manifest" in contract and not isinstance(contract.get("run_manifest"), dict):
+        errors.append("contract.run_manifest 必须是对象")
     arrays = (("candidates", contract.get("candidates")), ("review_candidates", contract.get("review_candidates")))
     seen_ids: set[str] = set()
     for array_name, rows in arrays:

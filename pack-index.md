@@ -1,5 +1,7 @@
 # 技能路由索引
 
+版本：0.41.1
+
 ## 默认入口
 
 | 需求 | 读取 | 入口 |
@@ -11,9 +13,10 @@
 | 规范/图集元数据与输入缺口 | `docs/conversion-and-normative.md` | `scripts/cad_normative.sh` |
 | 装饰识图、房间/洞口/做法候选、投影校验 | `packs/descriptive-geometry/SKILL.md` | `scripts/cad_descriptive_geometry.sh` |
 | 安装识图、系统/路由/设备/立管候选、竖向路由、系统拓扑、连通性审计 | `packs/mep-geometry/SKILL.md` | `scripts/cad_mep_geometry.sh` |
-| 结构识图、梁/板/柱/墙/基础/楼梯/洞口/配筋/编号/节点/轴网候选、证据坐标 | `packs/structural-geometry/SKILL.md` | `scripts/cad_structural_geometry.sh` |
+| 结构识图、梁/板/柱/墙/基础/楼梯/洞口/配筋/编号/节点/轴网候选、块内原始几何（--with-block-expand）、证据坐标 | `packs/structural-geometry/SKILL.md` | `scripts/cad_structural_geometry.sh` |
 | 总图/场地识图、红线/道路/停车/挡墙/边坡/管线/标高/桩号/坐标候选、证据坐标 | `packs/site-geometry/SKILL.md` | `scripts/cad_site_geometry.sh` |
-| 园林景观识图（种植/苗木图例/铺装闭合域/硬景）、植物名乔灌地被候选、无意义块的几何指纹兜底、铺装图层闭环+尺度过滤+区块聚合候选、证据坐标、DWG 块名净化（--dwg-dxf-fallback 自动转 DXF 复扫） | `packs/landscape-geometry/SKILL.md` | `scripts/cad_landscape_geometry.sh` |
+| 塔吊布置识图、INSERT 仿射回转中心、型号/臂长候选、圆旁证（不作臂长） | `packs/crane-layout/SKILL.md` | `scripts/cad_crane_geometry.sh` |
+| 园林景观识图（种植/苗木图例/铺装闭合域/硬景）、植物名乔灌地被候选、无意义块的几何指纹兜底、铺装图层闭环+尺度过滤+区块聚合候选、DXF 块内铺装/块引用回退、证据坐标、DWG 块名净化（--dwg-dxf-fallback 自动转 DXF 复扫） | `packs/landscape-geometry/SKILL.md` | `scripts/cad_landscape_geometry.sh` |
 | 设计院图例校准（用户提供新设计院图纸→扫块名→生成 plant_block_aliases 覆盖→按院别复验） | `packs/landscape-geometry/SKILL.md` | `scripts/cad_landscape_calibrate.sh` |
 | 园林 PDF 识图（苗木文字+规格，矢量/扫描 PDF 分流，PDF 几何仅 review） | `packs/landscape-geometry/SKILL.md` | `scripts/cad_landscape_pdf.sh` |
 | 给排水/暖通深化识图、管道/风管/设备/支吊架/管径/标高/编号候选、证据坐标 | `packs/hvac-plumbing-geometry/SKILL.md` | `scripts/cad_hvac_plumbing_geometry.sh` |
@@ -59,6 +62,8 @@
 - `packs/electrical-geometry/rules.json`：电气专业识图规则；只保存识别模式和证据边界。
 - `packs/steel-geometry/rules.json`：钢结构识图规则；只保存识别模式和证据边界。
 - `packs/municipal-geometry/rules.json`：市政专业识图规则；只保存识别模式和证据边界。
+- `packs/crane-layout/SKILL.md`：塔吊布置识图、INSERT 仿射、型号/臂长证据与边界。
+- `packs/crane-layout/rules.json`：塔吊块名/图层/型号/臂长匹配规则与阈值。
 - `packs/measurement-candidates/SKILL.md`：测量候选契约、比例单位规则和专项算量交接。
 - `docs/reliability.md`、`docs/bus-integration.md`、`docs/batch-workbook.md`：低频操作细节，按需读取。
 - `packs/cross-drawing-aggregation/SKILL.md`：跨图聚合与钢筋牌号规则。

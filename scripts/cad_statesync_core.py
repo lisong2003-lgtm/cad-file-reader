@@ -155,7 +155,7 @@ class Core:
         if "qto_spec" not in contract and isinstance(entry.get("contract"), dict) \
                 and entry["contract"].get("schema") == "qto-project/v1":
             contract = entry["contract"]
-        return {
+        wrapped = {
             "_id": f"{skill}:{project}:{building}:{floor}:{int(time.time() * 1000)}",
             "schema": "cad-contract/v1",
             "spec": "qto-project/v1",
@@ -172,6 +172,19 @@ class Core:
             "contract": contract,
             "review": {"review_required": False, "tier": "confirmed_evidence", "reason": []},
         }
+        # 顶层同步 contract_id/provenance/单位：下游 guard 与 site/算量只读顶层，
+        # 不能要求每个技能再解一层 contract 外壳。
+        inner = contract if isinstance(contract, dict) else {}
+        nested = inner.get("contract") if isinstance(inner.get("contract"), dict) else {}
+        for key in ("contract_id", "provenance", "coordinate_unit", "unit_scale"):
+            val = inner.get(key)
+            if val is None:
+                val = nested.get(key)
+            if val is None:
+                val = entry.get(key)
+            if val is not None:
+                wrapped[key] = val
+        return wrapped
 
     def push_fallback(self, project: str, building: str, floor: str,
                       entry: dict, skill: str) -> dict:

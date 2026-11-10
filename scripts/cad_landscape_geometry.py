@@ -11,7 +11,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
+import os
 import re
+import sys
 from collections import Counter, deque
 from pathlib import Path
 from typing import Any
@@ -1150,7 +1153,506 @@ def hardscape_candidates(records, rules):
     return out
 
 
-def analyze_file(path, rules):
+# ---------- DXF 块内铺装/块引用回退（与 yuanlin_qty 0.4.37 等价上移） ----------
+DEFAULT_PAVING_TOKENS = ("景观铺地", "铺装", "铺地", "园路", "波打", "收边", "PAVING", "HARDSCAPE", "PAVE")
+
+
+def _ensure_vendor():
+    vendor = ROOT / "vendor"
+    if vendor.exists() and str(vendor) not in sys.path:
+        sys.path.insert(0, str(vendor))
+
+
+def _dxf_unit_info(doc):
+    table = {1: (25.4, "inch"), 2: (304.8, "foot"), 4: (1.0, "mm"),
+             5: (10.0, "cm"), 6: (1000.0, "m")}
+    try:
+        item = table.get(int(doc.header.get("$INSUNITS") or 0))
+    except Exception:
+        item = None
+    if not item:
+        return {"drawing_unit": None, "drawing_mm_per_unit": None, "source": "DXF $INSUNITS"}
+    return {"drawing_unit": item[1], "drawing_mm_per_unit": item[0], "source": "DXF $INSUNITS"}
+
+
+def _dxf_block_ref_records(path):
+    """可选 DXF 回退：读取顶层 INSERT 坐标；只取模型空间，不展开嵌套。"""
+    _ensure_vendor()
+    try:
+        import ezdxf  # type: ignore
+    except Exception as exc:
+        return {"records": [], "warnings": [f"ezdxf 不可用：{exc}"], "insert_count": 0}
+    try:
+        doc = ezdxf.readfile(str(path))
+    except Exception as exc:
+        return {"records": [], "warnings": [f"DXF 读取失败：{exc}"], "insert_count": 0}
+    recs, warnings = [], []
+    try:
+        for entity in doc.modelspace().query("INSERT"):
+            name = str(getattr(entity.dxf, "name", "") or "").strip()
+            if not name:
+                continue
+            try:
+                pt = entity.dxf.insert
+                recs.append({"kind": "INSERT", "text": name,
+                             "x": float(pt[0]), "y": float(pt[1]),
+                             "layer": str(getattr(entity.dxf, "layer", "") or ""),
+                             "source": "dxf_block_ref"})
+            except Exception:
+                continue
+            if len(recs) >= 200000:
+                warnings.append("DXF INSERT 超过安全上限，已截断")
+                break
+    except Exception as exc:
+        warnings.append(f"DXF INSERT 读取失败：{exc}")
+    return {"records": recs, "warnings": warnings, "insert_count": len(recs)}
+
+
+def _poly_area(poly):
+    s = 0.0
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        s += x1 * y2 - x2 * y1
+    return s / 2.0
+
+
+def _poly_key(poly, digits=6):
+    """闭合环去重键：忽略起点和方向，只保留吸附后的点集。"""
+    pts = [(round(float(x), digits), round(float(y), digits)) for x, y in poly]
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    return tuple(sorted(pts))
+
+
+def _faces(segs, tol):
+    """轻量环面提取：把线段端点吸附成图，按逆时针邻接追踪边界，去重取多边形。"""
+    key = lambda x, y: (round(x / max(tol, 1e-9)), round(y / max(tol, 1e-9)))
+    nodes, edges = {}, []
+    for s in segs:
+        x1, y1, x2, y2 = s
+        a, b = key(x1, y1), key(x2, y2)
+        if a == b:
+            continue
+        nodes.setdefault(a, (x1, y1))
+        nodes.setdefault(b, (x2, y2))
+        edges.append((a, b))
+    if not nodes:
+        return []
+    pts, idx = nodes, list(nodes)
+    pidx = {p: i for i, p in enumerate(idx)}
+    adj = [[] for _ in idx]
+    edges = {(pidx[a], pidx[b]) for a, b in edges}
+    for a, b in edges:
+        adj[a].append(b)
+        adj[b].append(a)
+    for i in range(len(idx)):
+        adj[i].sort(key=lambda j: math.atan2(pts[idx[j]][1] - pts[idx[i]][1], pts[idx[j]][0] - pts[idx[i]][0]))
+    pos = {}
+    for i in range(len(idx)):
+        for k, j in enumerate(adj[i]):
+            pos[i, j] = k
+    used, out = set(), []
+    guard_max = len(idx) ** 2 + 8
+    for a in range(len(idx)):
+        for b in list(adj[a]):
+            if (a, b) in used:
+                continue
+            path, cur, nx, guard = [], a, b, 0
+            while (cur, nx) not in used and guard < guard_max:
+                used.add((cur, nx))
+                path.append(cur)
+                guard += 1
+                ns = adj[nx]
+                k = pos.get((nx, cur))
+                if k is None:
+                    break
+                nxt = ns[(k + 1) % len(ns)]
+                cur, nx = nx, nxt
+            if cur == a and nxt == b and len(path) >= 3 and len(set(path)) == len(path):
+                poly = [pts[idx[i]] for i in path] + [pts[idx[a]]]
+                ar = _poly_area(poly)
+                if abs(ar) > 1e-6:
+                    out.append((poly, ar))
+    seen, res = set(), []
+    for poly, ar in out:
+        key2 = _poly_key(poly)
+        if key2 in seen:
+            continue
+        seen.add(key2)
+        res.append((poly, ar))
+    return res
+
+
+def _dxf_arc_points(start_point, end_point, bulge, max_deg=10.0):
+    """把 LWPOLYLINE bulge 边展开成弦端点间的圆弧点列；保留旧实现的弧度口径。"""
+    try:
+        from ezdxf.math import bulge_to_arc
+    except Exception:
+        return []
+    try:
+        center, s_angle, e_angle, radius = bulge_to_arc(start_point, end_point, float(bulge))
+        if radius <= 0 or not all(math.isfinite(float(v)) for v in (center[0], center[1], s_angle, e_angle, radius)):
+            return []
+        start_deg = math.degrees(s_angle)
+        sweep = math.degrees(e_angle - s_angle)
+        n = max(2, min(180, int(math.ceil(abs(sweep) / max(max_deg, 1.0)))))
+        return [(center[0] + radius * math.cos(math.radians(start_deg + sweep * i / n)),
+                 center[1] + radius * math.sin(math.radians(s_angle + sweep * i / n)))
+                for i in range(1, n + 1)]
+    except Exception:
+        return []
+
+
+def _dxf_arc_boundary_points(entity, max_deg=10.0):
+    """ARC 边界点列（不含起点）；单独 ARC 以弦闭合后可形成 P3 候选环。"""
+    try:
+        cx, cy = float(entity.dxf.center.x), float(entity.dxf.center.y)
+        r = float(entity.dxf.radius)
+        s = float(entity.dxf.start_angle)
+        e = float(entity.dxf.end_angle)
+        if r <= 0 or not all(math.isfinite(v) for v in (cx, cy, r, s, e)):
+            return []
+        sweep = e - s
+        while sweep <= 0:
+            sweep += 360.0
+        n = max(2, min(180, int(math.ceil(sweep / max(max_deg, 1.0)))))
+        return [(cx + r * math.cos(math.radians(s + sweep * i / n)),
+                 cy + r * math.sin(math.radians(s + sweep * i / n)))
+                for i in range(1, n + 1)]
+    except Exception:
+        return []
+
+
+def _dxf_hatch_boundary_points(path, max_deg=10.0):
+    """HATCH 边界点列：支持 PolylinePath 与 Line/Arc EdgePath；只取边界。"""
+    pts = []
+    if hasattr(path, 'vertices'):
+        for v in getattr(path, 'vertices', []) or []:
+            try:
+                x, y = float(v[0]), float(v[1])
+                if math.isfinite(x) and math.isfinite(y):
+                    pts.append((x, y))
+            except Exception:
+                pass
+        if len(pts) >= 3 and pts[0] != pts[-1]:
+            pts.append(pts[0])
+        return pts
+    if not hasattr(path, 'edges'):
+        return []
+    for edge in getattr(path, 'edges', []) or []:
+        typ = str(getattr(edge, 'EDGE_TYPE', getattr(edge, 'type', '')) or '').lower()
+        try:
+            if typ == 'line':
+                for v in (edge.start_point, edge.end_point):
+                    x, y = float(v[0]), float(v[1])
+                    if math.isfinite(x) and math.isfinite(y):
+                        pts.append((x, y))
+            elif typ == 'arc':
+                a0 = float(edge.start_angle)
+                a1 = float(edge.end_angle)
+                cx, cy = float(edge.center.x), float(edge.center.y)
+                r = float(edge.radius)
+                sweep = a1 - a0
+                while sweep <= 0:
+                    sweep += 360.0
+                n = max(2, min(180, int(math.ceil(sweep / max(max_deg, 1.0)))))
+                pts.extend((cx + r * math.cos(math.radians(a0 + sweep * i / n)),
+                            cy + r * math.sin(math.radians(a0 + sweep * i / n)))
+                           for i in range(n + 1))
+        except Exception:
+            continue
+    if len(pts) >= 3 and pts[0] != pts[-1]:
+        pts.append(pts[0])
+    return pts
+
+
+def _dxf_block_paving_segments(path, rules):
+    """展开 INSERT 变换，提取铺装块内闭合 LWPOLYLINE/POLYLINE/HATCH/ARC。
+
+    与 yuanlin_qty 0.4.37 的 _dxf_block_paving_segments 同构；只处理命中
+    铺装 token 的图层/块名，全部结果由调用方强制 P3。
+    """
+    _ensure_vendor()
+    try:
+        import ezdxf  # type: ignore
+    except Exception as exc:
+        return {"segments": [], "layers": [], "mm_per_unit": None, "units": {}, "warnings": [f"ezdxf 不可用：{exc}"]}
+
+    tokens = [str(x).strip().lower() for x in (rules.get("paving_layer_tokens") or DEFAULT_PAVING_TOKENS) if str(x).strip()]
+    skip_tokens = ("paving slab", "paving unit", "paver", "joint", "grout", "tile")
+    segs, layers, warnings = [], [], []
+    seen_entities = 0
+    ring_count = 0
+    try:
+        doc = ezdxf.readfile(str(path))
+    except Exception as exc:
+        return {"segments": [], "layers": [], "mm_per_unit": None, "units": {}, "warnings": [f"DXF 读取失败：{exc}"]}
+    units = _dxf_unit_info(doc)
+    unit_mm_value = units.get("drawing_mm_per_unit")
+
+    def add_ring(pts, layer_label):
+        nonlocal ring_count
+        clean = []
+        for x, y in pts:
+            if len(clean) >= 2 and abs(x - clean[-2][0]) < 1e-12 and abs(y - clean[-2][1]) < 1e-12:
+                clean[-1] = (x, y)
+                continue
+            clean.append((x, y))
+        while len(clean) > 1 and abs(clean[0][0] - clean[-1][0]) < 1e-12 and abs(clean[0][1] - clean[-1][1]) < 1e-12:
+            clean.pop()
+        if len(clean) < 3:
+            return
+        for i, (x1, y1) in enumerate(clean):
+            x2, y2 = clean[(i + 1) % len(clean)]
+            if abs(x1 - x2) < 1e-12 and abs(y1 - y2) < 1e-12:
+                continue
+            segs.append([x1, y1, x2, y2])
+            layers.append(layer_label)
+        ring_count += 1
+
+    def walk(layout, matrix, path_names):
+        nonlocal seen_entities, ring_count
+        for entity in layout:
+            seen_entities += 1
+            if seen_entities > 200000 or ring_count > 5000:
+                if len(warnings) < 3:
+                    warnings.append("DXF 实体/闭合环超过安全上限，已截断")
+                return
+            typ = entity.dxftype()
+            if typ in ("INSERT", "MINSERT"):
+                name = str(getattr(entity.dxf, "name", "") or "")
+                low_name = name.lower()
+                if not name or name in path_names or any(s in low_name for s in skip_tokens):
+                    continue
+                try:
+                    block = doc.blocks.get(name)
+                except Exception:
+                    continue
+                try:
+                    insert_matrix = entity.matrix44()
+                    child_matrix = insert_matrix if matrix is None else matrix @ insert_matrix
+                except Exception:
+                    child_matrix = matrix
+                walk(block, child_matrix, path_names + (name,))
+                continue
+            owner = " / ".join(path_names)
+            entity_layer = str(entity.dxf.layer or "")
+            effective_layer = entity_layer if entity_layer not in ("", "0") else (path_names[-1] if path_names else entity_layer)
+            current_block = path_names[-1] if path_names else ""
+            hay = f"{current_block} {entity_layer} {effective_layer}".lower()
+            if not any(token in hay for token in tokens):
+                continue
+            if any(s in owner.lower() for s in skip_tokens):
+                continue
+
+            def transform_point(x, y):
+                if matrix is not None:
+                    p = matrix.transform((float(x), float(y), 0.0))
+                    return float(p[0]), float(p[1])
+                return float(x), float(y)
+
+            def transformed(points):
+                return [transform_point(x, y) for x, y in points]
+
+            pts = []
+            ring_ready = False
+            try:
+                if typ == "LWPOLYLINE":
+                    raw = list(entity.get_points("xyb"))
+                    for i, (x, y, bulge) in enumerate(raw):
+                        pts.append((float(x), float(y)))
+                        b = float(bulge or 0.0)
+                        if abs(b) > 1e-9:
+                            nx, ny = raw[(i + 1) % len(raw)][:2]
+                            pts.extend(_dxf_arc_points((float(x), float(y)), (float(nx), float(ny)), b))
+                    if getattr(entity, "closed", False):
+                        ring_ready = True
+                    elif len(pts) >= 3 and abs(pts[0][0] - pts[-1][0]) < 1e-9 and abs(pts[0][1] - pts[-1][1]) < 1e-9:
+                        ring_ready = True
+                elif typ == "POLYLINE" and getattr(entity, "is_closed", False):
+                    vertices = list(entity.vertices)
+                    for i, v in enumerate(vertices):
+                        loc = v.dxf.location
+                        pts.append((float(loc.x), float(loc.y)))
+                        b = float(getattr(v.dxf, "bulge", 0.0) or 0.0)
+                        if abs(b) > 1e-9:
+                            nv = vertices[(i + 1) % len(vertices)].dxf.location
+                            pts.extend(_dxf_arc_points((float(loc.x), float(loc.y)), (float(nv.x), float(nv.y)), b))
+                    ring_ready = True
+                elif typ == "HATCH":
+                    for bp in entity.paths or []:
+                        hp = _dxf_hatch_boundary_points(bp)
+                        if len(hp) >= 3:
+                            pts = transformed(hp)
+                            add_ring(pts, f"（DXF回退）HATCH {owner} [{entity_layer or effective_layer}]" if owner else f"（DXF回退）HATCH [{entity_layer or effective_layer}]")
+                    continue
+                elif typ == "ARC":
+                    ap = _dxf_arc_boundary_points(entity)
+                    if ap:
+                        start = (float(entity.dxf.center.x) + float(entity.dxf.radius) * math.cos(math.radians(float(entity.dxf.start_angle))),
+                                 float(entity.dxf.center.y) + float(entity.dxf.radius) * math.sin(math.radians(float(entity.dxf.start_angle))))
+                        pts = [transform_point(*start)] + transformed(ap) + [transform_point(*start)]
+                        add_ring(pts, f"（DXF回退）ARC {owner} [{entity_layer or effective_layer}]" if owner else f"（DXF回退）ARC [{entity_layer or effective_layer}]")
+                    continue
+            except Exception as exc:
+                if len(warnings) < 3:
+                    warnings.append(f"DXF {typ} 边界展开失败：{exc}")
+                continue
+            if not ring_ready or len(pts) < 3:
+                continue
+            pts = transformed(pts)
+            layer_label = f"（DXF回退）{owner} [{entity_layer or effective_layer}]" if owner else f"（DXF回退）{entity_layer or effective_layer or '未知铺装图层'}"
+            add_ring(pts, layer_label)
+
+    try:
+        walk(doc.modelspace(), None, ())
+    except Exception as exc:
+        warnings.append(f"DXF 块几何展开失败：{exc}")
+    return {"segments": segs, "layers": layers, "mm_per_unit": unit_mm_value,
+            "units": units, "warnings": warnings}
+
+
+def _source_from_paving_label(label):
+    text = str(label or "")
+    if text.startswith("（DXF回退）"):
+        text = text[len("（DXF回退）"):]
+    if text.startswith("HATCH "):
+        text = text[len("HATCH "):]
+    if text.startswith("ARC "):
+        text = text[len("ARC "):]
+    pos = text.rfind(" [")
+    owner = text[:pos] if pos > 0 else ""
+    layer = text[pos + 2:-1] if pos > 0 and text.endswith("]") else text
+    return owner or "MODELSPACE", layer or None
+
+
+def _block_paving_rows(path, rules):
+    info = _dxf_block_paving_segments(path, rules)
+    units = info.get("units") or {}
+    mm_unit = units.get("drawing_mm_per_unit")
+    try:
+        tol = float(rules.get("geometry_close_tolerance") or 50) / max(float(mm_unit or 1.0), 1e-9)
+    except Exception:
+        tol = float(rules.get("geometry_close_tolerance") or 50)
+    by_layer = {}
+    for seg, layer in zip(info.get("segments") or [], info.get("layers") or []):
+        if isinstance(seg, (list, tuple)) and len(seg) >= 4:
+            by_layer.setdefault(str(layer or "未知铺装图层"), []).append(tuple(float(v) for v in seg[:4]))
+    rows = []
+    for layer_label, segs in by_layer.items():
+        faces = _faces(segs, tol)
+        seen, unique = set(), []
+        for poly, ar in faces:
+            xs = [p[0] for p in poly]
+            ys = [p[1] for p in poly]
+            key = (round(abs(ar), 6), tuple(round(v, 6) for v in (min(xs), min(ys), max(xs), max(ys))))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((poly, ar))
+        for poly, ar in unique:
+            if abs(ar) < 1e-6:
+                continue
+            source_block, layer = _source_from_paving_label(layer_label)
+            xs = [p[0] for p in poly]
+            ys = [p[1] for p in poly]
+            rows.append({
+                "type": "paving_ring", "category": "paving", "system": "paving",
+                "layer": layer or layer_label, "layer_label": layer_label,
+                "source_block": source_block,
+                "points": [[round(float(x), 6), round(float(y), 6)] for x, y in poly],
+                "point_count": len(poly), "vertex_count": max(0, len(poly) - 1),
+                "closed": True,
+                "area_drawing_units2": round(abs(ar), 6),
+                "unit": "drawing_unit^2",
+                "bbox": [round(min(xs), 6), round(min(ys), 6), round(max(xs), 6), round(max(ys), 6)],
+                "confidence": 0.4, "status": "review",
+                "review_note": "块内推定", "review_reason": "块内推定",
+                "review_reasons": ["low_confidence_inference"],
+                "final_quantity": False,
+                "evidence": [{"layer": layer or layer_label, "kind": "dxf_block_ring",
+                              "source_block": source_block, "point_count": len(poly),
+                              "area_drawing_units2": round(abs(ar), 6)}],
+            })
+    rows.sort(key=lambda r: (-r["area_drawing_units2"], r.get("layer") or "", r.get("source_block") or ""))
+    return rows, info
+
+
+def _block_ref_rows(path):
+    info = _dxf_block_ref_records(path)
+    rows = []
+    for rec in info.get("records") or []:
+        name = str(rec.get("text") or "")
+        rows.append({
+            "type": "block_ref", "category": "block_ref", "system": "",
+            "block_name": name, "name": name,
+            "x": round(float(rec.get("x") or 0.0), 6),
+            "y": round(float(rec.get("y") or 0.0), 6),
+            "layer": rec.get("layer") or None,
+            "source": "dxf_block_ref",
+            "confidence": 0.4, "status": "review",
+            "review_note": "块内推定", "review_reason": "块内推定",
+            "review_reasons": ["low_confidence_inference"],
+            "final_quantity": False,
+            "evidence": [{"kind": "dxf_block_ref", "value": name,
+                          "coord": [round(float(rec.get("x") or 0.0), 6), round(float(rec.get("y") or 0.0), 6)],
+                          "layer": rec.get("layer") or None}],
+        })
+    return rows, info
+
+
+def block_fallback_payload(path, rules, *, with_paving=False, with_refs=False):
+    """只读一个 DXF，生成块内铺装环与顶层块引用回退候选。"""
+    paving_rings, paving_info = ([], {}) if not with_paving else _block_paving_rows(path, rules)
+    block_refs, refs_info = ([], {}) if not with_refs else _block_ref_rows(path)
+    units = {}
+    if with_paving:
+        units = (paving_info.get("units") or {})
+    if with_refs and not units:
+        # block_refs 不涉及面积；仍记录 DXF 单位供下游解释坐标。
+        _ensure_vendor()
+        try:
+            import ezdxf  # type: ignore
+            units = _dxf_unit_info(ezdxf.readfile(str(path)))
+        except Exception:
+            units = {}
+    review = []
+    if paving_info.get("warnings"):
+        review.extend({"type": "block_paving", "reason": str(x), "evidence": {"file": path.name}} for x in paving_info["warnings"])
+    if refs_info.get("warnings"):
+        review.extend({"type": "block_refs", "reason": str(x), "evidence": {"file": path.name}} for x in refs_info["warnings"])
+    if with_paving:
+        if paving_rings:
+            review.append({"type": "block_paving", "reason": "块内推定", "evidence": {"file": path.name, "rings": len(paving_rings), "confidence": 0.4}})
+        else:
+            review.append({"type": "block_paving", "reason": "未从 DXF 块内提取到命中铺装 token 的闭合环；块名/图层/闭合关系需人工复核", "evidence": {"file": path.name}})
+    if with_refs and not block_refs:
+        review.append({"type": "block_refs", "reason": "DXF 模型空间未读到顶层 INSERT；植物块坐标回退不可用", "evidence": {"file": path.name}})
+    summary = {
+        "drawing_types": 0, "systems": 0, "plant_legends": 0,
+        "plant_block_legends": 0, "plant_block_fingerprints": 0,
+        "plant_schedule_links": 0, "paving_closed_areas": 0,
+        "green_area_candidates": 0, "pdf_geometry_candidates": 0,
+        "hardscape": 0, "plant_name_noise_excluded": 0,
+        "plant_note_noise_excluded": 0, "unclassified_legend_words": 0,
+        "paving_rings": len(paving_rings), "block_refs": len(block_refs),
+        "review_items": len(review),
+    }
+    return {
+        "schema": SCHEMA, "source_file": path.name, "summary": summary,
+        "drawing_types": [], "systems": [], "plant_legends": [],
+        "plant_block_legends": [], "plant_block_fingerprints": [],
+        "plant_schedule_links": [], "paving_closed_areas": [],
+        "paving_rings": paving_rings, "block_refs": block_refs,
+        "green_area_candidates": [], "pdf_geometry_candidates": [],
+        "hardscape": [], "audit": {}, "units": units, "review": review,
+        "boundary": "只输出园林识图候选与证据；块内铺装环为 P3 候选，面积仅以图纸单位平方记录，不冒充 m²、不计入主线；不输出苗木数量、铺装面积、土方量、材料量、造价或结算量。",
+    }
+
+
+def analyze_file(path, rules, drawing_unit=None):
     data = json.loads(path.read_text(encoding="utf-8"))
     records = read_records(data)
     views = drawing_type_candidates(records, rules)
@@ -1169,7 +1671,14 @@ def analyze_file(path, rules):
     audit = plant_coverage_audit(records, rules)
     summary = {"drawing_types": len(views), "systems": len(systems), "plant_legends": len(plants), "plant_block_legends": len(plant_blocks), "plant_block_fingerprints": len(plant_fp), "plant_schedule_links": len(plant_links), "paving_closed_areas": len(paving), "green_area_candidates": len(green), "pdf_geometry_candidates": len(pdf_geom), "hardscape": len(hardscape), "plant_name_noise_excluded": int(plant_stats.get("name_noise_excluded") or 0),
                   "plant_note_noise_excluded": int(plant_stats.get("note_noise_excluded") or 0), "unclassified_legend_words": audit.get("unclassified_legend_words", 0)}
-    return {"schema": SCHEMA, "source_file": path.name, "summary": summary, "drawing_types": views, "systems": systems, "plant_legends": plants, "plant_block_legends": plant_blocks, "plant_block_fingerprints": plant_fp, "plant_schedule_links": plant_links, "paving_closed_areas": paving, "green_area_candidates": green, "pdf_geometry_candidates": pdf_geom, "hardscape": hardscape, "audit": audit, "boundary": "只输出园林识图候选与证据；不输出苗木数量、铺装面积、土方量、材料量、造价或结算量。"}
+    units = {}
+    if drawing_unit:
+        mm_per_unit = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "ft": 304.8}.get(str(drawing_unit).lower())
+        if mm_per_unit is None:
+            raise ValueError(f"不支持的 --drawing-unit：{drawing_unit}（可选 mm/cm/m/ft）")
+        units = {"drawing_unit": str(drawing_unit).lower(), "drawing_mm_per_unit": mm_per_unit,
+                 "source": "user-confirmed"}
+    return {"schema": SCHEMA, "source_file": path.name, "summary": summary, "drawing_types": views, "systems": systems, "plant_legends": plants, "plant_block_legends": plant_blocks, "plant_block_fingerprints": plant_fp, "plant_schedule_links": plant_links, "paving_closed_areas": paving, "green_area_candidates": green, "pdf_geometry_candidates": pdf_geom, "hardscape": hardscape, "audit": audit, "units": units, "boundary": "只输出园林识图候选与证据；不输出苗木数量、铺装面积、土方量、材料量、造价或结算量。"}
 
 
 def write_markdown(payload, path):
@@ -1243,6 +1752,24 @@ def write_markdown(payload, path):
             lines.append(f"| {row['raw']} | {row.get('layer','')} |")
     else:
         lines.append("无")
+    if payload.get("paving_rings") is not None:
+        lines += ["", "## DXF 块内铺装环回退候选（P3，仅图纸单位平方）", ""]
+        if payload.get("paving_rings"):
+            lines += ["| 来源块 | 图层 | 点数 | 原始面积(drawing_unit^2) | 状态 |", "|---|---|---|---|---|"]
+            for row in payload["paving_rings"][:120]:
+                lines.append(f"| {row.get('source_block','')} | {row.get('layer','')} | {row.get('point_count','')} | {row.get('area_drawing_units2','')} | {row.get('status','')} |")
+            lines.append("- 面积只写图纸单位平方，不是 m²；不进入主线工程量。")
+        else:
+            lines.append("无")
+    if payload.get("block_refs") is not None:
+        lines += ["", "## DXF 顶层块引用回退候选", ""]
+        if payload.get("block_refs"):
+            lines += ["| 块名 | 图层 | 坐标 | 状态 |", "|---|---|---|---|"]
+            for row in payload["block_refs"][:120]:
+                coord = f"{row.get('x','')},{row.get('y','')}"
+                lines.append(f"| {row.get('block_name','')} | {row.get('layer','')} | {coord} | {row.get('status','')} |")
+        else:
+            lines.append("无")
     lines += ["", f"> {payload['boundary']}", ""]
     path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -1279,33 +1806,60 @@ def write_csv(payload, path):
         for row in payload["hardscape"]:
             coord = "" if row.get("x") is None else f"{row.get('x')},{row.get('y')}"
             writer.writerow(["hardscape", "hardscape", row.get("system", ""), row["raw"], row.get("layer", ""), row.get("file", ""), row.get("sheet", ""), coord, row["status"], row.get("matched_token", "")])
+        for row in payload.get("paving_rings") or []:
+            writer.writerow(["paving_ring", "paving", "paving", row.get("source_block", ""), row.get("layer", ""), payload.get("source_file", ""), "", str(row.get("bbox", "")), row.get("status", ""), f"points={row.get('point_count','')}|area_drawing_units2={row.get('area_drawing_units2','')}|{row.get('review_note','')}"])
+        for row in payload.get("block_refs") or []:
+            coord = f"{row.get('x','')},{row.get('y','')}"
+            writer.writerow(["block_ref", "block_ref", "", row.get("block_name", ""), row.get("layer", ""), payload.get("source_file", ""), "", coord, row.get("status", ""), row.get("review_note", "")])
 
 
 def main():
     import pyboot
     pyboot.ensure_utf8_io()
-    parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取园林/景观识图中间数据。")
-    parser.add_argument("inputs", nargs="+")
+    parser = argparse.ArgumentParser(description="从 cad_scan 详情 JSON 提取园林/景观识图中间数据；可选 DXF 块内铺装/块引用回退。")
+    parser.add_argument("inputs", nargs="*", help="cad_scan 详情 JSON（可空；仅用 DXF 回退参数时不必给）")
     parser.add_argument("--out-dir", default="园林识图")
     parser.add_argument("--rules", default=str(RULES_PATH))
     parser.add_argument("--institute", default=None, help="设计院图例覆盖名（packs/landscape-geometry/institutes/<名>.json）")
+    parser.add_argument("--block-paving", type=Path, default=None, action="append", help="从 DXF 递归展开块内铺装闭合环（P3，仅图纸单位平方；可重复）")
+    parser.add_argument("--block-refs", type=Path, default=None, action="append", help="读取 DXF 模型空间顶层 INSERT 块引用（P3；可重复）")
+    parser.add_argument("--drawing-unit", choices=["mm", "cm", "m", "ft"], default=None,
+                        help="DWG 未声明单位时显式确认模型空间绘图单位（写进契约，不猜）")
     args = parser.parse_args()
+    if not args.inputs and not args.block_paving and not args.block_refs:
+        parser.error("至少提供一个 cad_scan 详情 JSON，或 --block-paving/--block-refs")
     rules = load_rules(Path(args.rules))
     if getattr(args, "institute", None):
         rules = load_rules_with_institute(rules, args.institute)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    for value in args.inputs:
-        src = Path(value)
-        if not src.exists():
-            raise FileNotFoundError(src)
-        payload = analyze_file(src, rules)
+
+    def write_outputs(payload, src):
         payload = contractize_payload(payload, source=src.name)
         jp, mp, cp = out_dir / f"{src.stem}.landscape.json", out_dir / f"{src.stem}.landscape.md", out_dir / f"{src.stem}.landscape.csv"
         jp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         write_markdown(payload, mp)
         write_csv(payload, cp)
         print(json.dumps({"source": src.name, "summary": payload["summary"], "outputs": [str(jp), str(mp), str(cp)]}, ensure_ascii=False))
+
+    for value in args.inputs:
+        src = Path(value)
+        if not src.exists():
+            raise FileNotFoundError(src)
+        write_outputs(analyze_file(src, rules, args.drawing_unit), src)
+
+    paving = {Path(v).resolve(): Path(v) for v in (args.block_paving or [])}
+    refs = {Path(v).resolve(): Path(v) for v in (args.block_refs or [])}
+    seen = set()
+    for key in list(paving) + [k for k in refs if k not in paving]:
+        if key in seen:
+            continue
+        seen.add(key)
+        src = paving.get(key) or refs[key]
+        if not src.exists():
+            raise FileNotFoundError(src)
+        payload = block_fallback_payload(src, rules, with_paving=key in paving, with_refs=key in refs)
+        write_outputs(payload, src)
     return 0
 
 

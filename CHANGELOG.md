@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.41.1 · 2026-11-10 · S9 发布准备：版本收口
+
+- 版本 patch bump；同步套件最低版本。s9 发布准备，未改识图逻辑。
+
+## 0.41.0 · 2026-11-09 · 结构/园林块几何上移与等价回归
+
+- **结构块几何**：`cad_scan --with-block-expand --detail-json` 新增模型空间直画实体与 INSERT 块内 LINE/LWPOLYLINE 展开，写入 `block_geometry[].segments[]`（`handle/kind/geometry/layer/source_block`），默认 200000 段；超限/异常写 `review`，不中断整批。修复 DWG 直画实体 `source_block=MODELSPACE` 与 DXF 块定义基点读取（`block.block.dxf.base_point`）。
+- **结构识图输出**：`cad_structural_geometry` 追加 `category=raw_geometry` 行（6 位坐标、`source=modelspace|block:<名>`、`entity_kind`），以及 `blocks[]`、`units`、`review[]`；未开块展开时给 `block_geometry_unavailable`，不伪造 handle/基点。
+- **园林 DXF 回退**：`cad_landscape_geometry` 新增 `--block-paving`、`--block-refs`，允许无 cad_scan 详情 JSON 直接读 DXF；块内铺装递归展开 INSERT 并输出 `paving_rings[]`，块引用输出模型空间顶层 `block_refs[]`；固定 P3/0.4/`final_quantity=false`/`review_note=块内推定`，面积仅 `area_drawing_units2`。
+- **等价回归**：合成 DXF 新/旧园林实现线段多重集完全相等、环点数一致、面积误差为零；结构构件记录一致，BLK-A 基点及顶层与嵌套首段坐标核对通过。真实 DWG 本机只读聚合 59/59 段、15 块记录、多重集相等、最大坐标差 0.0（脱敏，不记录路径）。
+- **边界**：不发布、不上传、不写远端；真实工程图只读；不改变土建/园林算量算法；不删除旧 `cad_geometry.py`/`yuanlin_qty.py`。
+
+## 0.40.0 · 2026-11-09 · 塔吊布置识图包 + 契约溯源
+
+- **新增 `packs/crane-layout/` 与 `scripts/cad_crane_geometry.py|.sh|.cmd`**：
+  - 输入 DXF/DWG 或 `cad_scan --detail-json`；DWG 内部仍走 `cad_scan`，不另写解析器。输出 `*.crane.json/md/csv`，主数组 `crane_layout[]`（兼容别名 `towers[]`）。
+  - INSERT 仿射：块基点 + 平移 + 旋转 + 缩放 → `center_xy_m`；DXF 块头在 INSERT 之后时扫描结束回填 `base_point`；DWG 直读无块基点时 `center_xy_m=null`、`center_status=unavailable`，不伪造。
+  - 同图/同空间 2 m 内重复符号去重；`crane_id` 稳定为 `图层|块名|序号`。
+  - 型号只认块名或塔吊图层/标签附近明确文字；臂长只认“臂长/起重臂长”，排除“幅度/工作半径/R=”；圆只进 `radius_circles_m`，`used_as_jib_length=false`。
+  - 支持 `--block` / `--layer` 字面量补充匹配；未传 `--drawing-unit` 时按 mm 解释但全部进 review。
+- **契约溯源 `cad-contract/v1`**：全包 `contract` 追加 `contract_id`、`source_sha256`、`source_sha256_reason`、`reader_version`、`run_manifest`；`contract_id` 由源图哈希、内容摘要、图号、专业和 reader 版本决定，不含墙钟时间，`run_manifest` 才记录命令/参数/起止时间；旧 v0 字段语义不变。
+- **DXF 解析修复**：修复 `SECTION/ENDSEC` 分段串段；`INSERT` 输出块名、旋转、x/y/z 缩放、基点及来源，新增 `210/220/230` 拉伸方向；块头后置时回填基点；新增 `CIRCLE` 流式提取（仅 ENTITIES，`[x,y,r,layer]`）。
+- **测试**：新增 9 项塔吊合成图测试（零基点 30°、非零块基点、2 m 去重、圆只作旁证、图例圆与 R= 不设臂长、无型号保持 unknown、未传 `--drawing-unit` 全部进 review、DWG worker 9/8 字段、DXF 块头后置回填）；相关 38 项单测通过，全量测试见 `证据/s3_evidence_20261109.md`。
+- **边界**：不选型、不验算、不判断覆盖/吊重/基础/附着/群塔防碰撞；`final_quantity=false`；真实图纸字节不上云。
+
 ## 0.39.7 · 2026-11-09 · 常驻注入瘦身
 
 - **description 精简**：技能目录注入的 description 压到 ≤45 字，保留原有触发词与「不做什么」边界；SKILL.md 正文与算法口径未变。

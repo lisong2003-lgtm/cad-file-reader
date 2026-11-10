@@ -12,11 +12,12 @@
 | 钢结构 | `scripts/cad_scan.sh 钢结构图.dwg ... --detail-json 钢结构详情.json` + `scripts/cad_steel_geometry.sh` | `packs/steel-geometry/SKILL.md`；构件/截面/连接/材料候选；重量涂装交专项 |
 | 市政 | `scripts/cad_scan.sh 市政图.dwg ... --detail-json 市政详情.json` + `scripts/cad_municipal_geometry.sh` | `packs/municipal-geometry/SKILL.md`；道路/管网/桥梁/桩号/标高候选；0.39.0+ 提取圆实体（井圈/阀门/消火栓，`--with-geom` 自动，标注层/图例区/微圆三层剔除） |
 
-## 结构/总图场地/给排水暖通/精装修/幕墙/人防/预制装配识图路由
+## 结构/塔吊布置/总图场地/给排水暖通/精装修/幕墙/人防/预制装配识图路由
 
 | 专业 | 脚本 | 方法/边界 |
 |---|---|---|
 | 结构 | `scripts/cad_scan.sh 结构图.dwg ... --detail-json 结构详情.json` + `scripts/cad_structural_geometry.sh` | `packs/structural-geometry/SKILL.md`；梁板柱墙/配筋/节点/轴号候选 + **几何轴网**（`axis_nets`，给跨专业核对用）；方量钢筋交 tujian-suanliang |
+| 塔吊布置 | `scripts/cad_crane_geometry.sh 图纸.dxf --drawing-unit mm --out-dir 塔吊识图`（也可给 DWG 或 `cad_scan --detail-json` 产物） | `packs/crane-layout/SKILL.md`；INSERT 仿射回转中心、型号/臂长候选；圆只作旁证，不选型/验算 |
 | 总图场地 | `scripts/cad_scan.sh 总图.dwg ... --detail-json 总图详情.json` + `scripts/cad_site_geometry.sh` | `packs/site-geometry/SKILL.md`；红线/道路/停车/挡墙/土方候选；量交市政/土建 |
 | 给排水暖通 | `scripts/cad_scan.sh 给排水图.dwg ... --detail-json 给排水详情.json` + `scripts/cad_hvac_plumbing_geometry.sh` | `packs/hvac-plumbing-geometry/SKILL.md`；管/风管/设备/支吊架候选；量交 anzhuang-suanliang |
 | 精装修/室内 | `scripts/cad_interior_finish_geometry.sh` | `packs/interior-finish-geometry/SKILL.md` |

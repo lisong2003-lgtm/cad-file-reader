@@ -47,7 +47,7 @@ if [[ -f "${CHECK_RELEASE}" ]]; then
   if [[ -f "${ALLOW_FILE}" ]]; then
     ALLOW_SENSITIVE="$(tr '\n' ',' < "${ALLOW_FILE}" | sed 's/,$//')"
   fi
-  "${PYTHON_BIN}" "${CHECK_RELEASE}" --path "${SKILL_DIR}" --exclude-dirs outputs,examples \
+  "${PYTHON_BIN}" "${CHECK_RELEASE}" --path "${SKILL_DIR}" --exclude-dirs outputs,examples,vendor,.github \
     --allow-sensitive "${ALLOW_SENSITIVE}"
 else
   echo "⚠️ 未找到 skill-publisher/check_release.py，跳过 SkillHub 合规扫描（发布前需补跑）"

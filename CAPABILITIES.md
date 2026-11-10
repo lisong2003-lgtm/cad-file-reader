@@ -16,7 +16,7 @@
 | PDF 识图 | 本机 `pdf-inspector` 分流（vector/raster/hybrid）→ 原生文字或本地 OCR 线性候选；`cad_pdf_vec.sh` 坐标复核 | 识别/OCRead 结果全部进 review；单位 PDF 点，不参与测量 |
 | 统一契约 | `contract=cad-file-reader/v0`；候选分高置信（`confirmed_evidence`）、推断（`inferred_candidate`）与需复核（`review_required`）三档（阈值见 SKILL.md），可 `cad_validate.sh` 校验 | 候选固定 `final_quantity=false`；不含最终量/造价 |
 
-## 专业识图包（17 个）
+## 专业识图包（18 个）
 
 | 专业 | 入口脚本 | 说明 |
 |---|---|---|
@@ -27,6 +27,7 @@
 | 市政 | `cad_municipal_geometry.sh` | 道路/管网/桥隧/桩号/坐标候选 |
 | 结构 | `cad_structural_geometry.sh` | 梁板柱墙/配筋/轴网候选；量交 tujian-suanliang |
 | 总图/场地 | `cad_site_geometry.sh` | 红线/道路/挡墙/土方候选；量交市政/土建 |
+| 塔吊布置 | `cad_crane_geometry.sh` | INSERT 仿射回转中心/型号/臂长候选；圆只作旁证；不选型/验算 |
 | 给排水/暖通 | `cad_hvac_plumbing_geometry.sh` | 管/风管/设备/支吊架候选 |
 | 精装修/室内 | `cad_interior_finish_geometry.sh` | 饰面/做法/标高/节点候选 |
 | 幕墙 | `cad_curtain_wall_geometry.sh` | 立柱/面板/预埋/分格候选 |

@@ -270,10 +270,137 @@ def structural_geometry(data, rules):
         x1, y1, x2, y2 = (round(float(v), 3) for v in seg[:4])
         category, rule, pattern = match_rule(f"{layer}", rules.get("layer_rules") or [], "category")
         if category:
-            out.append({"type": "structural_geometry", "category": category, "system": (rule or {}).get("system") or "", "pattern": pattern, "layer": layer, "file": fname, "sheet": sheet_for_point(data, (x1 + x2) / 2, (y1 + y2) / 2), "geometry": [x1, y1, x2, y2], "confidence": float((rules.get("confidence") or {}).get("geometry_pattern", 0.86)), "status": "candidate", "evidence": [{"layer": layer, "kind": "geometry", "coord": [x1, y1, x2, y2], "file": fname, "sheet": sheet_for_point(data, (x1 + x2) / 2, (y1 + y2) / 2)}]})
+            sheet = sheet_for_point(data, (x1 + x2) / 2, (y1 + y2) / 2)
+            out.append({"type": "structural_geometry", "category": category,
+                        "system": (rule or {}).get("system") or "", "pattern": pattern,
+                        "layer": layer, "file": fname, "sheet": sheet,
+                        "geometry": [x1, y1, x2, y2], "handle": None,
+                        "source": "semantic_layer",
+                        "confidence": float((rules.get("confidence") or {}).get("geometry_pattern", 0.86)),
+                        "status": "candidate",
+                        "evidence": [{"layer": layer, "kind": "geometry",
+                                      "coord": [x1, y1, x2, y2], "file": fname,
+                                      "sheet": sheet}]})
         else:
             unmatched[layer or "<空图层>"] += 1
     return out, unmatched
+
+
+def _raw_geometry_source(source_block):
+    """把 cad_scan 的块路径映射成下游稳定的来源字段。"""
+    value = compact(source_block or "")
+    if not value or value.upper() == "MODELSPACE":
+        return "modelspace"
+    return f"block:{value}"
+
+
+def _round_nested(value, ndigits=6):
+    if isinstance(value, list):
+        return [_round_nested(v, ndigits) for v in value]
+    if isinstance(value, dict):
+        return {k: _round_nested(v, ndigits) for k, v in value.items()}
+    if isinstance(value, float) and value == value and value not in (float("inf"), float("-inf")):
+        return round(value, ndigits)
+    return value
+
+
+def block_geometry_payload(data):
+    """把 cad_scan --with-block-expand 的结果整理成结构几何行、块记录与单位。
+
+    cad_scan 已经读图并完成块变换，本函数只整理，不再读 DWG/DXF。
+    原始坐标保留 6 位；缺句柄/基点时只写复核项，不伪造句柄或插入点。
+    """
+    rows, blocks, reviews, files = [], [], [], []
+    missing_handles = 0
+    missing_base_points = 0
+    entries = data.get("block_geometry") or []
+    for ei, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        source_path = compact(entry.get("source_path"))
+        fname = Path(source_path).name if source_path else None
+        if not fname:
+            reviews.append({"type": "block_geometry_source", "reason": "块几何条目缺 source_path，无法把几何归回源图", "evidence": {"entry_index": ei}})
+        units = entry.get("units") if isinstance(entry.get("units"), dict) else {}
+        files.append({"file": fname, "units": units})
+        for note in entry.get("notes") or []:
+            reviews.append({"type": "block_geometry_note", "reason": compact(note), "evidence": {"file": fname}})
+        for raw_review in entry.get("review") or []:
+            if isinstance(raw_review, dict):
+                item = dict(raw_review)
+                item.setdefault("evidence", {})
+                if isinstance(item["evidence"], dict):
+                    item["evidence"] = dict(item["evidence"], file=fname)
+                reviews.append(item)
+        for raw_block in entry.get("blocks") or []:
+            if not isinstance(raw_block, dict):
+                continue
+            block = _round_nested(dict(raw_block), 6)
+            block["file"] = fname
+            if block.get("handle") in (None, ""):
+                missing_handles += 1
+                block["status"] = "review"
+                block["review_reason"] = "块记录缺句柄"
+            if block.get("source") == "dxf_block_definition" and block.get("base_point") is None:
+                missing_base_points += 1
+                block["status"] = "review"
+                block["review_reason"] = "块定义缺基点"
+            blocks.append(block)
+        for raw_seg in entry.get("segments") or []:
+            if not isinstance(raw_seg, dict):
+                continue
+            geom = raw_seg.get("geometry")
+            if not isinstance(geom, (list, tuple)) or len(geom) < 4:
+                reviews.append({"type": "raw_geometry", "reason": "块展开线段缺 geometry，已跳过", "evidence": {"file": fname, "handle": raw_seg.get("handle")}})
+                continue
+            try:
+                x1, y1, x2, y2 = (float(geom[0]), float(geom[1]), float(geom[2]), float(geom[3]))
+            except (TypeError, ValueError):
+                reviews.append({"type": "raw_geometry", "reason": "块展开线段坐标非数值，已跳过", "evidence": {"file": fname, "handle": raw_seg.get("handle")}})
+                continue
+            layer = compact(raw_seg.get("layer", ""))
+            handle = raw_seg.get("handle")
+            if handle in (None, ""):
+                missing_handles += 1
+            sheet = sheet_for_point(data, (x1 + x2) / 2, (y1 + y2) / 2)
+            rows.append({
+                "type": "structural_geometry", "category": "raw_geometry",
+                "system": "", "pattern": "block_expand",
+                "layer": layer, "file": fname, "sheet": sheet,
+                "geometry": [x1, y1, x2, y2],
+                "handle": handle, "source": _raw_geometry_source(raw_seg.get("source_block")),
+                "source_block": compact(raw_seg.get("source_block") or "MODELSPACE"),
+                "entity_kind": compact(raw_seg.get("kind", "")),
+                "confidence": float(0.86),
+                "status": "candidate" if handle not in (None, "") else "review",
+                "review_reason": "" if handle not in (None, "") else "缺实体句柄",
+                "evidence": [{"layer": layer, "kind": "geometry",
+                              "coord": [x1, y1, x2, y2], "file": fname,
+                              "sheet": sheet, "handle": handle,
+                              "source_block": raw_seg.get("source_block")}],
+            })
+    if missing_handles:
+        reviews.append({"type": "handle_missing", "reason": f"{missing_handles} 条块几何/块记录缺句柄；坐标可用，但无法回溯到原实体，需人工复核", "evidence": {"count": missing_handles}})
+    if missing_base_points:
+        reviews.append({"type": "base_point_missing", "reason": f"{missing_base_points} 条块定义缺基点；插入变换仍按旧解析器口径保留，块定位需人工复核", "evidence": {"count": missing_base_points}})
+    drawing_units = sorted({str(x.get("units", {}).get("drawing_unit")) for x in files if x.get("units", {}).get("drawing_unit")})
+    mm_values = sorted({float(x.get("units", {}).get("drawing_mm_per_unit")) for x in files if isinstance(x.get("units", {}).get("drawing_mm_per_unit"), (int, float))})
+    if len(drawing_units) > 1 or len(mm_values) > 1:
+        reviews.append({"type": "units_mixed", "reason": "多个源图的图纸单位不一致；块几何坐标只在各自图内比较，不能直接合并", "evidence": {"drawing_units": drawing_units, "drawing_mm_per_unit": mm_values}})
+    units = {
+        "drawing_unit": drawing_units[0] if len(drawing_units) == 1 else None,
+        "drawing_mm_per_unit": mm_values[0] if len(mm_values) == 1 else None,
+        "mixed": len(drawing_units) > 1 or len(mm_values) > 1,
+        "files": files,
+    }
+    return rows, blocks, units, reviews
+
+
+def block_geometry_review(data):
+    """没有块展开结果时给明确复核项，不把“没开参数”误写成“图中无块”。"""
+    if data.get("block_geometry"):
+        return []
+    return [{"type": "block_geometry_unavailable", "reason": "详情 JSON 无 block_geometry；如需块内/LINE/LWPOLYLINE 原始几何，请重跑 cad_scan 并加 --with-block-expand --detail-json", "evidence": []}]
 
 
 def axis_net_candidates(data):
@@ -305,20 +432,25 @@ def axis_net_candidates(data):
 
 
 def tightening_geometry(payload, ndigits: int = 1) -> dict:
-    """落地前瘦身：evidence 去重 + 坐标降到 0.1mm（图面毫米单位足够，防 JSON 膨胀）。"""
-    def rnd(v):
-        if isinstance(v, float) and v == v and v not in (float('inf'), float('-' + 'inf')):
-            return round(v, ndigits)
+    """落地前瘦身：语义行 0.1mm，原始块几何至少保留 6 位。
+
+    语义行来自图层名推断，1 位小数足够；raw_geometry 是块变换后的坐标证据，
+    过度取整会让新旧解析器逐点比对失真，因此固定保留 6 位。
+    """
+    def rnd(v, digits):
+        if isinstance(v, float) and v == v and v not in (float('inf'), float('-inf')):
+            return round(v, digits)
         return v
     for row in (payload.get('structural_geometry') or []):
+        digits = 6 if row.get('category') == 'raw_geometry' or row.get('source') != 'semantic_layer' else ndigits
         cleaned = []
         seen = set()
         for ev in (row.get('evidence') or []):
             coord = ev.get('coord')
-            new_coord = [rnd(c) for c in coord] if isinstance(coord, list) else coord
+            new_coord = [rnd(c, digits) for c in coord] if isinstance(coord, list) else coord
             key = (tuple(new_coord) if isinstance(new_coord, list) else new_coord,
                    ev.get('layer'), ev.get('kind'), ev.get('file'),
-                   ev.get('file_name'), ev.get('sheet'))
+                   ev.get('file_name'), ev.get('sheet'), ev.get('handle'))
             if key in seen:
                 continue
             seen.add(key)
@@ -330,7 +462,7 @@ def tightening_geometry(payload, ndigits: int = 1) -> dict:
             row['evidence'] = cleaned
         g = row.get('geometry')
         if isinstance(g, list):
-            row['geometry'] = [rnd(c) for c in g]
+            row['geometry'] = [rnd(c, digits) for c in g]
     return payload
 
 
@@ -345,6 +477,9 @@ def analyze_file(path, rules):
     nodes = node_candidates(records, rules)
     grids = grid_candidates(records, rules)
     geometry, unmatched_layers = structural_geometry(data, rules)
+    semantic_geometry_count = len(geometry)
+    raw_geometry, blocks, units, block_reviews = block_geometry_payload(data)
+    geometry.extend(raw_geometry)
     nets = axis_net_candidates(data)
     usable_nets = [n for n in nets if n["score"] >= AXIS_NET_USABLE and n["gap_kinds"] >= 2]
     review = []
@@ -360,12 +495,16 @@ def analyze_file(path, rules):
         review.append({"type": "axis_net", "reason": "几何段里未提取到可用轴网（轴线可能被画成多段短线，或不落在轴网图层），跨专业轴网核对将退回文字口径", "evidence": [{"geometry_segments": sum(len(s or []) for s in (data.get("geometry_segments") or []))}]})
     for layer, count in unmatched_layers.most_common(50):
         review.append({"type": "structural_layer", "reason": f"结构图层未分类：{layer}（{count} 段）", "evidence": [{"layer": layer}]})
-    summary = {"drawing_types": len(views), "systems": len(systems), "members": len(members), "rebars": len(rebars), "nodes": len(nodes), "grids": len(grids), "axis_nets": len(nets), "axis_nets_usable": len(usable_nets), "structural_geometry": len(geometry), "review_items": len(review)}
+    if semantic_geometry_count:
+        review.append({"type": "handle_missing", "reason": f"{semantic_geometry_count} 条语义图层几何来自 geometry_segments，不含实体句柄；如需句柄级回溯请用 --with-block-expand", "evidence": {"count": semantic_geometry_count}})
+    review.extend(block_geometry_review(data))
+    review.extend(block_reviews)
+    summary = {"drawing_types": len(views), "systems": len(systems), "members": len(members), "rebars": len(rebars), "nodes": len(nodes), "grids": len(grids), "axis_nets": len(nets), "axis_nets_usable": len(usable_nets), "structural_geometry": len(geometry), "semantic_geometry": semantic_geometry_count, "raw_geometry": len(raw_geometry), "blocks": len(blocks), "review_items": len(review)}
     return {"schema": "cad-structural-geometry/v1", "source_file": path.name,
             # 透传 cad_scan 记下的源图路径：下游按目录聚类、跨专业配对要用，
             # 只留产物名会让不同专业的图纸落进同一个簇。
             "source_paths": data.get("source_paths") or [],
-            "summary": summary, "drawing_types": views, "scale_unit_audit": audit, "systems": systems, "members": members, "rebars": rebars, "nodes": nodes, "grids": grids, "axis_nets": nets, "structural_geometry": geometry, "review": review, "boundary": "只输出结构识图候选、证据和复核项；不输出混凝土体积、钢筋吨位、长度汇总、材料量、造价或结算量。"}
+            "summary": summary, "drawing_types": views, "scale_unit_audit": audit, "systems": systems, "members": members, "rebars": rebars, "nodes": nodes, "grids": grids, "axis_nets": nets, "structural_geometry": geometry, "blocks": blocks, "units": units, "review": review, "boundary": "只输出结构识图候选、证据和复核项；不输出混凝土体积、钢筋吨位、长度汇总、材料量、造价或结算量。"}
 
 
 def write_markdown(payload, path):
