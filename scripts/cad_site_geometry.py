@@ -289,6 +289,7 @@ def main():
     parser.add_argument("inputs", nargs="+")
     parser.add_argument("--out-dir", default="场地识图")
     parser.add_argument("--rules", default=str(RULES_PATH))
+    parser.add_argument("--source-drawing", default=None, help="详情 JSON 输入时，指定原图路径用于 source_sha256")
     args = parser.parse_args()
     rules = load_rules(Path(args.rules))
     out_dir = Path(args.out_dir)
@@ -299,7 +300,7 @@ def main():
         if not src.exists():
             raise FileNotFoundError(src)
         payload = analyze_file(src, rules)
-        payload = contractize_payload(payload, source=src.name)
+        payload = contractize_payload(payload, source=src.name, source_path=args.source_drawing)
         jp, mp, cp = out_dir / f"{src.stem}.site.json", out_dir / f"{src.stem}.site.md", out_dir / f"{src.stem}.site.csv"
         jp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         write_markdown(payload, mp)

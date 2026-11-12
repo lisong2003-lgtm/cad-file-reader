@@ -79,7 +79,7 @@ _TEXTS = {
     "audit_done": ("审计完成", "audit completed"),
     "self_test_ok": ("自测通过", "self-test passed"),
     "usage_hint": ("使用 --help 查看完整用法", "run with --help for full usage"),
-    "privacy_note": ("本工具本机运行，不上传图纸/文档字节", "runs locally; drawing/document bytes never leave your machine"),
+    "privacy_note": ("默认本机运行；图纸/文档字节不外发，除非你明确同意", "local by default; drawing/document bytes are not sent out without your explicit consent"),
     "lang_title_en": ("English", "English"),
     "lang_title_zh": ("中文", "中文"),
 }

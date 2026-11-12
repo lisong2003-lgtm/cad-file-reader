@@ -56,7 +56,7 @@ scripts/cad_landscape_geometry.sh 景观详情.json \
 - `--block-refs`：只读模型空间顶层 INSERT，输出 `block_refs[]`（块名、坐标、图层）；不展开嵌套、不做缩放。
 - 两参数都可重复传多个 DXF；无位置参数时按 `<stem>.landscape.json/md/csv` 落盘。
 - 块内铺装固定 P3：`confidence=0.4`、`final_quantity=false`、`review_note=块内推定`，全部进入契约 `review_candidates[]`。面积只写图纸单位平方 `area_drawing_units2`，不是 m²，不进入主线工程量。
-- 旧实现（`yuanlin_qty` 0.4.37）与新实现按线段多重集、环点数、环面积做等价回归；真实 DWG 只做本机只读聚合验证，不上云、不把原图路径写进输出或证据。
+- 旧实现（`yuanlin_qty` 0.4.37）与新实现按线段多重集、环点数、环面积做等价回归；真实 DWG 默认只做本机只读聚合验证；未经用户明确范围、字节与同意，不交云端，不把原图路径写进输出或证据。
 
 ## 识别范围
 - 图纸类型：种植总平面、苗木表、景观总平面、铺装平面/详图、硬景详图。

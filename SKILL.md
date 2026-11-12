@@ -2,7 +2,7 @@
 name: cad-file-reader
 slug: cad-file-reader
 displayName: CAD 图纸识图与证据提取
-version: 0.41.1
+version: 0.41.3
 license: CC-BY-NC-SA-4.0
 author: lis
 i18n: true
@@ -37,6 +37,7 @@ description: "识图测量候选；不做算量，final_quantity=false。触发�
 - 命令均相对技能根目录执行；输出文件写入当前项目工作目录，不写系统目录。
 - 大图先扫描、按需局部展开；高内存/高 CPU 立即暂停。
 - 首次扫描可用 `--cache-dir` 建立本机证据缓存；同图重复查询命中缓存。缓存只保存识图证据，不保存最终工程量。
+- 总图/场地识图新增 `building_outline` 分类（建筑屋顶外轮廓、地下室外轮廓），可给布置/算量技能提供多栋主体轮廓候选；它只是图层+几何候选，不保证选中“主楼”，也不把多个轮廓层自动合并。
 
 ## 可靠性策略（快速失败）
 

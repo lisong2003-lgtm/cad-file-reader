@@ -48,7 +48,7 @@ def log_err(msg: str) -> None:
 
 
 _BUS_HINT_BENEFITS = (
-    "lis-skill-bus 未安装：本次已自动降级到本机状态文件，功能不受影响，不装也能用。好处：同一张 CAD 图只解析一次，5 个算量技能共享同一份项目状态与识图契约；完全本地、不联网、不上云。"
+    "lis-skill-bus 未安装：本次已自动降级到本机状态文件，功能不受影响，不装也能用。好处：同一张 CAD 图只解析一次，5 个算量技能共享同一份项目状态与识图契约；状态只落本机，图纸字节不外发。"
 )
 _BUS_HINT_INSTALL = (
     "一行安装（macOS/Linux）：bash install_skillbus.sh --apply；"

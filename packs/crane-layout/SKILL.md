@@ -62,4 +62,4 @@ scripts/cad_crane_geometry.sh 总平面图.dxf --drawing-unit mm --out-dir 塔�
 - 不判断塔吊型号是否匹配现场、不读厂家性能表、不做覆盖/吊重/基础/附着/群塔防碰撞结论。
 - 不输出塔吊数量结论、选型建议、施工方案或审批意见；`final_quantity=false`。
 - DWG 直读拿不到块基点时，回转中心为 `null` 并进 review；优先用 DWG→DXF 副本，或先 `cad_scan --dwg-dxf-fallback --detail-json` 再识图，不伪造中心。
-- 公司图纸字节只在本机处理，不上传云端或在线 OCR。
+- 公司图纸默认只在本机处理；未经用户明确范围、字节与同意，不把图纸字节交给云端模型、在线 OCR/转换或第三方服务。

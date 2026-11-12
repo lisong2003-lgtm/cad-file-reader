@@ -33,7 +33,7 @@
 
 - 结构：先 `cad_scan 结构图.dwg --with-mtext --with-insert --with-geom --with-geom-layer --with-block-expand --detail-json 结构详情.json`，再跑 `cad_structural_geometry`。详情 JSON 的 `block_geometry[].segments[]` 才带块内 LINE/LWPOLYLINE；结构输出追加 `category=raw_geometry` 行、`blocks[]`、`units`、`review[]`。未开 `--with-block-expand` 时只给 `block_geometry_unavailable` 复核项，不伪造块内几何。
 - 园林：`cad_landscape_geometry --block-paving 景观图.dxf --block-refs 景观图.dxf --out-dir 园林识图` 可只读 DXF 直接生成块内铺装环与顶层块引用；也可与 cad_scan 详情 JSON 位置参数并用。块内铺装固定 P3/`confidence=0.4`、`final_quantity=false`、`review_note=块内推定`，面积只写 `area_drawing_units2`，不冒充 m²。
-- 块内几何是复核候选，不替代设计确认、比例/单位核对、现场量测或专项算量；真实工程图只在本机只读处理。
+- 块内几何是复核候选，不替代设计确认、比例/单位核对、现场量测或专项算量；真实工程图默认只在本机只读处理；未经用户明确范围、字节与同意，不外发。
 
 ## 图层/块语义与图纸对比
 
@@ -59,7 +59,7 @@ scripts/cad_compare.sh 基准详情.json 目标详情.json \
 
 ## PDF 图纸（识图候选，本机分流 + 本地 OCR）
 
-先用本机 `pdf-inspector` 分类：文本型取原生文字，扫描/混合型用 `pdftoppm` 渲染后调本地 `image-ocr`。结果只作识图/文字候选，一律进 `review_candidates` 并标 `missing_layer/missing_unit/missing_scale`，不输出测量数量。矢量 PDF 的 `pdf_meta.vector_text_items` 仅作证据，不参与测量；图签栏提取为版式优先 + 关键词兜底，需人工核对。公司图纸字节全程本机处理，不上云。dpi 换算、缓存与全部命令见 `docs/pdf-pipeline.md`。
+先用本机 `pdf-inspector` 分类：文本型取原生文字，扫描/混合型用 `pdftoppm` 渲染后调本地 `image-ocr`。结果只作识图/文字候选，一律进 `review_candidates` 并标 `missing_layer/missing_unit/missing_scale`，不输出测量数量。矢量 PDF 的 `pdf_meta.vector_text_items` 仅作证据，不参与测量；图签栏提取为版式优先 + 关键词兜底，需人工核对。公司图纸默认本机处理；未经用户明确范围、字节与同意，不把图纸字节交给云端模型、在线 OCR/转换或第三方服务。dpi 换算、缓存与全部命令见 `docs/pdf-pipeline.md`。
 
 ## 统一自测/回归闭环与发布预检
 
@@ -111,6 +111,7 @@ scripts/cad_crane_geometry.sh 图纸.dxf --drawing-unit mm --out-dir 塔吊识�
 # 也可直接给 DWG；或给 cad_scan --detail-json 产物并加 --source-drawing 原图
 ```
 
+- 总图场地包输出 `site_geometry[]`，含 `building_outline`（建筑屋顶/地下室外轮廓）、`site_boundary`、`road`、`retaining_wall` 等图层候选；轮廓是否为主楼、是否闭合仍要下游确认。
 - 输出 `*.crane.json/md/csv`：`crane_layout[]`（兼容别名 `towers[]`）含 `crane_id`、块名/图层/句柄、`insert_xyz_mm`、`center_xy_m`、旋转/缩放、型号与臂长候选、圆旁证和证据坐标。
 - `center_xy_m` 必须由 INSERT 仿射变换（块基点+平移+旋转+缩放）得到；DWG 直读拿不到块基点时保持 `null` 并进 review，优先用 DWG→DXF 副本或 `cad_scan --dwg-dxf-fallback --detail-json`，不伪造中心。
 - 型号只认块名或塔吊图层/标签附近的明确文字；臂长只认“臂长/起重臂长”，排除“幅度/工作半径/R=”；圆只进 `radius_circles_m`，`used_as_jib_length=false`。

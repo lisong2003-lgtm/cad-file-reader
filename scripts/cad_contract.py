@@ -448,10 +448,31 @@ def _sha256_file(path: Path) -> str:
 
 
 def _source_sha256(source: Any, source_path: Any, payload: dict[str, Any]) -> tuple[str | None, str]:
-    """返回 (哈希, 依据)。多源时按文件名排序后对 `name:sha` 求总哈希，不伪造单图哈希。"""
-    candidates: list[Path] = []
+    """返回 (哈希, 依据)。多源时按文件名排序后对 `name:sha` 求总哈希，不伪造单图哈希。
+
+    显式 `source_path` 优先且独占：它表示“原图”，不能和输入 JSON 文件名混算，
+    否则从详情 JSON 所在目录运行时会把 JSON 自身算进 `computed_bundle`，破坏契约号确定性。
+    显式路径不存在时返回 `source_not_found`，不回退去猜别的文件。
+    """
+    explicit: list[Path] = []
     if source_path:
-        candidates.append(Path(str(source_path)))
+        values = source_path if isinstance(source_path, (list, tuple)) else [source_path]
+        for value in values:
+            cand = Path(str(value))
+            try:
+                if cand.is_file():
+                    explicit.append(cand)
+            except OSError:
+                continue
+        if not explicit:
+            return None, "source_not_found"
+        uniq = {str(p.resolve()): p for p in explicit}
+        files = sorted(uniq.values(), key=lambda p: (p.name, str(p.resolve())))
+        if len(files) == 1:
+            return _sha256_file(files[0]), "computed"
+        lines = [f"{p.name}:{_sha256_file(p)}" for p in files]
+        return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest(), "computed_bundle"
+    candidates: list[Path] = []
     if isinstance(source, (str, Path)) and str(source):
         candidates.append(Path(str(source)))
     for item in payload.get("source_paths") or []:
@@ -466,7 +487,7 @@ def _source_sha256(source: Any, source_path: Any, payload: dict[str, Any]) -> tu
             continue
     if not existing:
         return None, "source_not_found"
-    paths = [existing[k] for k in sorted(existing)]
+    paths = sorted(existing.values(), key=lambda p: (p.name, str(p.resolve())))
     if len(paths) == 1:
         return _sha256_file(paths[0]), "computed"
     lines = [f"{p.name}:{_sha256_file(p)}" for p in paths]

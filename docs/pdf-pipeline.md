@@ -29,5 +29,5 @@ scripts/cad_pdf_ocr.sh 图纸.pdf --cache-dir /tmp/pdf-cache --out-dir 图纸PDF
 scripts/cad_pdf_ocr.sh 图纸.pdf --force --out-dir 图纸PDF识图
 ```
 
-输出为 `*.pdf识图.json`（cad-file-reader/v0 契约）与同名 Markdown；可用 `scripts/cad_validate.sh 输出.json` 校验。公司图纸字节全程本机处理，不上云。
+输出为 `*.pdf识图.json`（cad-file-reader/v0 契约）与同名 Markdown；可用 `scripts/cad_validate.sh 输出.json` 校验。公司图纸默认本机处理；未经用户明确范围、字节与同意，不把图纸字节交给云端模型、在线 OCR/转换或第三方服务。
 

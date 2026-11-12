@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.41.3 · 2026-11-11 · 总图契约源图哈希 + 隐私口径补齐
+
+- **`cad_site_geometry --source-drawing`**：详情 JSON（`cad_scan --detail-json`）输入时可用原图路径补算 `contract.source_sha256`；不传时行为不变，`source_sha256=null`、`source_sha256_reason=source_not_found` 仍如实写出。修复下游 `prepare_site.py` 只能拿到 `source_sha256=null` 的问题。
+- **显式原图优先**：`_source_sha256()` 中 `--source-drawing` 改为独占输入；修掉“从详情 JSON 所在目录运行时把 detail.json 自身混进 `computed_bundle`、导致同图不同契约号”的确定性缺陷。显式路径不存在时如实返回 `source_not_found`，不再回退猜文件；多源哈希排序改为 `(文件名, 绝对路径)`，跨机器顺序稳定。新增 2 项回归测试（同目录同名冲突、缺失显式路径）。
+- **真实总图验证**：真实总图 DWG（SHA-256 见交付报告）直接扫描 4.3 s，`detail.json` 6554 TEXT / 660 MTEXT / 14512 块引用；总图识图输出 `source_sha256_reason=computed`、`contract_id` 稳定，`prepare_site.py` 生成的 `base-map.json` 与设施/塔吊契约三处源图哈希一致。
+- **隐私口径补齐**：`scripts/cad_statesync.py`、`scripts/i18n.py`、`docs/qto-linkage.md`、`README.en.md` 中残留的“完全本地/不上传/never leave”绝对化措辞，统一为“默认本机处理；未经用户明确范围、字节与同意，不把图纸字节交给云端模型、在线 OCR/转换或第三方服务”。
+- **边界**：默认路径不上传图纸字节；首次缺依赖仍会联网取公共 PyPI/GitHub Release 依赖（不上传图纸）。模块内“纯 stdlib、不联网”的 `cad_statesync`、只读 `doctor`、元数据 `drawing_source` 属事实描述，保留。
+
+## 0.41.2 · 2026-11-11 · 总图建筑外轮廓分类
+
+- **site-geometry 新增 `building_outline`**：图层规则覆盖 `建筑-屋顶-外轮廓`、`建筑-屋顶_外轮廓`、`地下室-外轮廓`，输出 `cad-site-geometry/v1.site_geometry[]` 候选，供 `site-layout-plan` 提取多栋主体轮廓。
+- **真实总图验证（本机只读）**：真实总图详情 JSON 命中 `0-建筑-屋顶-外轮廓_03_小` 111 段；同图共识别 1,222 条 `building_outline` 候选，覆盖 10 类屋顶/地下室轮廓图层、2 个图框。下游 `prepare_site.py --building-layer` 已成功取到真实主体闭合环。
+- **诚实边界**：分类只按图层名与几何线段，不判断哪一栋是主楼，不保证跨图框/多标高轮廓闭合；规划、已有、高差线等图层会并存，必须由下游人工确认。
+- **验证**：`scripts/tests/test_cad_site_geometry.py` 含 `0-建筑-屋顶-外轮廓_03_小` 命中断言；`scripts/cad_crane_geometry.sh --help` 退出码 0。
+- **隐私口径统一**：README、manifest、crane-layout 包、on-demand、pdf-pipeline、bus-integration、qto-linkage 中的绝对化措辞改为“默认本机处理；未经用户明确范围、字节与同意，不把图纸字节交给云端模型、在线 OCR/转换或第三方服务”，并删除“完全本地、不联网”的过度承诺（首次缺依赖会联网取公共依赖，不上传图纸字节）。
+
 ## 0.41.1 · 2026-11-10 · S9 发布准备：版本收口
 
 - 版本 patch bump；同步套件最低版本。s9 发布准备，未改识图逻辑。
