@@ -218,7 +218,7 @@ bash scripts/self_test.sh --json-only --skip-unit      # 快速跑，JSON 打到
 - 第 3 段：`schemas/*.schema.json` 轻量 JSON Schema 校验（随包内置，不依赖
   jsonschema）对 `examples/qto-sample` 样例做正/负向不变量校验，并用
   `cad_validate.sh` 校验全部 v0 契约样例。
-- 第 4 段：`examples/sample_room.dxf` 实际 `cad_scan` → contractize →
+- 第 4 段：`scripts/generate_sample.py` 现场生成样例 DXF 后 `cad_scan` → contractize →
   `cad_validate.sh` 契约校验。
 - 第 5 段：坏文件不变量（空文件 / 坏魔数快速失败 <5s）。
 - 第 6 段：可选真实 DWG 回归（`run_real_dwg_regression.py`），缺清单则记
